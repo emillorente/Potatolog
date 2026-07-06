@@ -22,8 +22,10 @@ fn load_records(path: &str) -> Result<Vec<crate::Record>, warp::Rejection> {
     Ok(process(reader, view).filter_map(|r| r.ok()).collect())
 }
 
-fn cached_records(state: &AppState, path: &str) -> Result<Vec<crate::Record>, warp::Rejection> {
-    if let Some(records) = state.cache.read().unwrap().get(path) {
+fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Vec<crate::Record>, warp::Rejection> {
+    if refresh {
+        state.cache.write().unwrap().remove(path);
+    } else if let Some(records) = state.cache.read().unwrap().get(path) {
         return Ok(records.clone());
     }
     let records = load_records(path)?;
@@ -131,7 +133,8 @@ async fn handle_query(
     state: Arc<AppState>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let path = params.get("file").cloned().unwrap_or(state.default_file.clone());
-    let all_records = cached_records(&state, &path)?;
+    let refresh = params.get("refresh").map(|v| v == "true").unwrap_or(false);
+    let all_records = cached_records(&state, &path, refresh)?;
     let skip: usize = params.get("skip").and_then(|v| v.parse().ok()).unwrap_or(0);
     let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(5000);
     let f_level = params.get("level").map(String::as_str).unwrap_or("");
@@ -407,8 +410,8 @@ const FRONTEND_HTML: &str = r##"<!DOCTYPE html>
     top: 0;
     z-index: 5;
   }
-  .date-range { display: flex; gap: 2px; }
-  .date-range input[type="datetime-local"] { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); padding: 1px 4px; border-radius: 3px; font-size: 10px; font-family: 'JetBrains Mono', monospace; width: 110px; box-sizing: border-box; color-scheme: dark; }
+  .date-range { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+  .date-range input[type="datetime-local"] { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); padding: 1px 4px; border-radius: 3px; font-size: 10px; font-family: 'JetBrains Mono', monospace; width: 100%; box-sizing: border-box; color-scheme: dark; }
   .date-range input[type="datetime-local"]:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); outline: none; }
   .date-range input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(0.6); scale: 0.7; cursor: pointer; }
   thead .h-row th {
@@ -545,6 +548,13 @@ const FRONTEND_HTML: &str = r##"<!DOCTYPE html>
   .trigger-toggle { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-muted); cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif; white-space: nowrap; flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--btn-bg); transition: background 0.15s; height: 28px; box-sizing: border-box; }
   .trigger-toggle:hover { background: var(--bg-hover); border-color: var(--text-muted); }
   .trigger-toggle input { margin: 0; accent-color: var(--accent); }
+  .refresh-btn { background: var(--btn-bg); border: 1px solid var(--border); color: var(--text-secondary); width: 28px; height: 28px; border-radius: 5px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: background 0.15s; flex-shrink: 0; padding: 0; line-height: 1; }
+  .refresh-btn:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+  .refresh-btn.spin { animation: rspin 0.6s linear; }
+  @keyframes rspin { to { transform: rotate(360deg); } }
+  .auto-refresh-toggle { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-muted); cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif; white-space: nowrap; flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--btn-bg); transition: background 0.15s; height: 28px; box-sizing: border-box; }
+  .auto-refresh-toggle:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+  .auto-refresh-toggle input { margin: 0; accent-color: var(--accent); }
 
   .spinner { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); }
   .spinner-ring { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: sp 0.7s linear infinite; }
@@ -616,6 +626,8 @@ const FRONTEND_HTML: &str = r##"<!DOCTYPE html>
     <input type="file" id="file-input" hidden>
     <button id="uploadBtn" class="upload-label" title="Open file">📂 Open file…</button>
   </div>
+  <button class="refresh-btn" id="refreshBtn" title="Refresh data">↻</button>
+  <label class="auto-refresh-toggle"><input type="checkbox" id="autoRefresh"> auto</label>
   <label class="trigger-toggle"><input type="checkbox" id="fhideTriggers"> triggers</label>
   <div class="stats"><span id="count">0</span> / <span id="total">0</span></div>
   <button class="theme-toggle" id="themeToggle" title="Toggle theme"></button>
@@ -665,7 +677,7 @@ const colFilters = { level: '', dateFrom: '', dateTo: '', comp: '', proc: '', th
 
 const STORAGE_KEY = 'lv_colwidths';
 const COL_KEYS = ['bar', 'level', 'ts', 'comp', 'proc', 'thread', 'user', 'msg', 'source', 'line', 'sourceC', 'lineC'];
-const DEFAULT_WIDTHS = { bar: 38, level: 70, ts: 150, comp: 180, proc: 170, thread: 60, user: 130, msg: null, source: 160, line: 55, sourceC: 120, lineC: 55 };
+const DEFAULT_WIDTHS = { bar: 38, level: 70, ts: 155, comp: 180, proc: 170, thread: 60, user: 130, msg: null, source: 160, line: 55, sourceC: 120, lineC: 55 };
 let colWidths = {};
 
 function loadWidths() {
@@ -1079,14 +1091,15 @@ function doRenderAll() {
   });
 }
 
-async function fetchPage() {
+async function fetchPage(forceRefresh, silent) {
   if (!currentFile && !allRecords.length) { doRenderAll(); return; }
   if (!currentFile) { doRenderAll(); return; }
-  showSpinner();
+  if (!silent) showSpinner();
   const params = new URLSearchParams();
   params.set('file', currentFile);
   params.set('skip', pageSkip);
   params.set('limit', pageLimit);
+  if (forceRefresh === true) params.set('refresh', 'true');
   if (colFilters.level) params.set('level', colFilters.level);
   if (colFilters.comp) params.set('comp', colFilters.comp);
   if (colFilters.proc) params.set('proc', colFilters.proc);
@@ -1148,6 +1161,8 @@ document.getElementById('uploadBtn').addEventListener('click', () => {
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  document.getElementById('autoRefresh').checked = false;
   container.innerHTML = '';
   allRecords = [];
   allTotal = 0;
@@ -1178,6 +1193,25 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   }
   hideSpinner();
   e.target.value = '';
+});
+
+let autoRefreshTimer = null;
+
+document.getElementById('refreshBtn')?.addEventListener('click', () => {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.remove('spin');
+  void btn.offsetWidth; // reflow
+  btn.classList.add('spin');
+  fetchPage(true);
+});
+
+document.getElementById('autoRefresh')?.addEventListener('change', (e) => {
+  if (e.target.checked) {
+    autoRefreshTimer = setInterval(() => fetchPage(true, true), 3000);
+  } else {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
 });
 
 function setTheme(t) {
