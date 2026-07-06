@@ -19,7 +19,9 @@ struct AppState {
 fn load_records(path: &str) -> Result<Vec<crate::Record>, warp::Rejection> {
     let reader = readers::detect_reader(path).map_err(|_| warp::reject::not_found())?;
     let view = view_for_file(path);
-    Ok(process(reader, view).filter_map(|r| r.ok()).collect())
+    let mut records: Vec<crate::Record> = process(reader, view).filter_map(|r| r.ok()).collect();
+    records.reverse();
+    Ok(records)
 }
 
 fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Vec<crate::Record>, warp::Rejection> {
