@@ -130,6 +130,7 @@ async fn handle_upload(
     })))
 }
 
+#[allow(non_snake_case)]
 async fn handle_query(
     params: HashMap<String, String>,
     state: Arc<AppState>,
