@@ -104,3 +104,69 @@
 - `examples/CORE.OUT`: ~382K-record delimited log file (156 MB, some records span 22+ lines).
 - `examples/reu.out`: ~3.8K-query SQL trace log file (13 MB).
 - `AGENTS.md`: this file.
+
+## Build & Run
+
+### Prerequisites
+- [Rust](https://rustup.rs/) (stable toolchain)
+- Git
+
+### Compile locally
+
+```bash
+# Clone
+git clone https://github.com/emillorente/LogViewer.git
+cd LogViewer
+
+# Build release binary (includes both CLI and web server)
+cargo build --release --all-features
+
+# Binary location:
+#   Linux/macOS: target/release/logviewer
+#   Windows:     target\release\logviewer.exe
+```
+
+### Cross-compile for Windows from macOS/Linux
+
+```bash
+# Install Windows target
+rustup target add x86_64-pc-windows-msvc
+
+# Build (requires MSVC linker — use Mingw instead if no MSVC)
+cargo build --release --all-features --target x86_64-pc-windows-msvc
+```
+
+Alternatively, use `x86_64-pc-windows-gnu` (Mingw) which works without Visual Studio:
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+cargo build --release --all-features --target x86_64-pc-windows-gnu
+```
+
+### Run
+
+```bash
+# Web server (opens on http://127.0.0.1:8000)
+./target/release/logviewer web examples/CORE.OUT
+
+# Process a log file with a view (CLI mode, JSON lines output)
+./target/release/logviewer process view_core.json examples/CORE.OUT
+```
+
+### GitHub Actions (automatic builds)
+
+Every push to `master` triggers a build for Ubuntu, macOS and Windows. Download the binary from the Actions tab:
+
+1. Go to https://github.com/emillorente/LogViewer/actions
+2. Select the latest workflow run
+3. Download the artifact for your platform
+
+### Release (tagged versions)
+
+```bash
+# Tag and push to create a GitHub Release with binaries
+git tag v1.0
+git push --tags
+```
+
+This triggers the release workflow, which compiles for all 3 platforms and uploads the binaries to https://github.com/emillorente/LogViewer/releases
