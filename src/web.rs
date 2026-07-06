@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::sync::{Arc, RwLock};
 
+use rayon::prelude::*;
 use warp::Filter;
 
 use crate::filters::View;
 use crate::process;
 use crate::readers;
 
-type RecordCache = Arc<RwLock<HashMap<String, CachedDataSet>>>;
+type RecordCache = Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>;
 
 #[derive(Clone)]
 struct CachedDataSet {
@@ -54,14 +55,14 @@ fn load_records(path: &str) -> Result<CachedDataSet, warp::Rejection> {
     Ok(CachedDataSet { records, iso_dates, empty_ts })
 }
 
-fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<CachedDataSet, warp::Rejection> {
+fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Arc<CachedDataSet>, warp::Rejection> {
     if refresh {
         state.cache.write().unwrap().remove(path);
     } else if let Some(data) = state.cache.read().unwrap().get(path) {
-        return Ok(data.clone());
+        return Ok(Arc::clone(data));
     }
-    let data = load_records(path)?;
-    state.cache.write().unwrap().insert(path.to_owned(), data.clone());
+    let data = Arc::new(load_records(path)?);
+    state.cache.write().unwrap().insert(path.to_owned(), Arc::clone(&data));
     Ok(data)
 }
 
@@ -228,58 +229,58 @@ async fn handle_query(
         main_end
     };
 
-    let mut total = 0usize;
-    let mut out_records = Vec::new();
+    let matching: Vec<usize> = all_records[..date_break].par_iter()
+        .enumerate()
+        .filter(|(i, rec)| {
+            let level = rec.variables.get("level").map_or("", |s| s);
+            let comp = rec.variables.get("component").map_or("", |s| s);
+            let proc = rec.variables.get("proc").map_or("", |s| s);
+            let thread = rec.variables.get("thread").map_or("", |s| s);
+            let user = rec.variables.get("user").map_or("", |s| s);
+            let msg = rec.variables.get("message").map_or(&rec.text, |s| s);
+            let source = rec.variables.get("source").map_or("", |s| s);
+            let line = rec.variables.get("line").map_or("", |s| s);
+            let sourceC = rec.variables.get("sourceC").map_or("", |s| s);
+            let lineC = rec.variables.get("lineC").map_or("", |s| s);
 
-    for (i, rec) in all_records.iter().enumerate() {
-        if has_date_from && i >= date_break { break; }
-
-        let level = rec.variables.get("level").map_or("", |s| s);
-        let comp = rec.variables.get("component").map_or("", |s| s);
-        let proc = rec.variables.get("proc").map_or("", |s| s);
-        let thread = rec.variables.get("thread").map_or("", |s| s);
-        let user = rec.variables.get("user").map_or("", |s| s);
-        let msg = rec.variables.get("message").map_or(&rec.text, |s| s);
-        let source = rec.variables.get("source").map_or("", |s| s);
-        let line = rec.variables.get("line").map_or("", |s| s);
-        let sourceC = rec.variables.get("sourceC").map_or("", |s| s);
-        let lineC = rec.variables.get("lineC").map_or("", |s| s);
-
-        if !f_level.is_empty() && !level.to_lowercase().contains(&f_level.to_lowercase()) { continue; }
-        if !f_comp.is_empty() && !comp.to_lowercase().contains(&f_comp.to_lowercase()) { continue; }
-        if !f_proc.is_empty() && !proc.to_lowercase().contains(&f_proc.to_lowercase()) { continue; }
-        if !f_thread.is_empty() && !thread.to_lowercase().contains(&f_thread.to_lowercase()) { continue; }
-        if !f_user.is_empty() && user.to_lowercase() != f_user.to_lowercase() { continue; }
-        if !f_msg.is_empty() && !msg.to_lowercase().contains(&f_msg.to_lowercase()) { continue; }
-        if !f_source.is_empty() && !source.to_lowercase().contains(&f_source.to_lowercase()) { continue; }
-        if !f_line.is_empty() && !line.to_lowercase().contains(&f_line.to_lowercase()) { continue; }
-        if !f_sourceC.is_empty() && !sourceC.to_lowercase().contains(&f_sourceC.to_lowercase()) { continue; }
-        if !f_lineC.is_empty() && !lineC.to_lowercase().contains(&f_lineC.to_lowercase()) { continue; }
-        let is_trigger = comp.to_uppercase().starts_with("TRIGGER");
-        if f_hideTriggers && is_trigger { continue; }
-
-        if has_date_to && i < main_end {
-            if let Some(ref iso) = iso_dates[i] {
-                if iso.as_str() > f_date_to_ref { continue; }
+            if !f_level.is_empty() && !level.to_lowercase().contains(&f_level.to_lowercase()) { return false; }
+            if !f_comp.is_empty() && !comp.to_lowercase().contains(&f_comp.to_lowercase()) { return false; }
+            if !f_proc.is_empty() && !proc.to_lowercase().contains(&f_proc.to_lowercase()) { return false; }
+            if !f_thread.is_empty() && !thread.to_lowercase().contains(&f_thread.to_lowercase()) { return false; }
+            if !f_user.is_empty() && user.to_lowercase() != f_user.to_lowercase() { return false; }
+            if !f_msg.is_empty() && !msg.to_lowercase().contains(&f_msg.to_lowercase()) { return false; }
+            if !f_source.is_empty() && !source.to_lowercase().contains(&f_source.to_lowercase()) { return false; }
+            if !f_line.is_empty() && !line.to_lowercase().contains(&f_line.to_lowercase()) { return false; }
+            if !f_sourceC.is_empty() && !sourceC.to_lowercase().contains(&f_sourceC.to_lowercase()) { return false; }
+            if !f_lineC.is_empty() && !lineC.to_lowercase().contains(&f_lineC.to_lowercase()) { return false; }
+            if f_hideTriggers && comp.to_uppercase().starts_with("TRIGGER") { return false; }
+            if has_date_to && *i < main_end {
+                if let Some(ref iso) = iso_dates[*i] {
+                    if iso.as_str() > f_date_to_ref { return false; }
+                }
             }
-        }
+            if !search_q.is_empty() {
+                let haystack = format!("{} {} {}", rec.text, msg, comp).to_lowercase();
+                if !search_q.split_whitespace().all(|w| haystack.contains(w)) { return false; }
+            }
+            true
+        })
+        .map(|(i, _)| i)
+        .collect();
 
-        if !search_q.is_empty() {
-            let haystack = format!("{} {} {}", rec.text, msg, comp).to_lowercase();
-            if !search_q.split_whitespace().all(|w| haystack.contains(w)) { continue; }
-        }
-
-        total += 1;
-        if total > skip && out_records.len() < limit {
+    let total = matching.len();
+    let out_records: Vec<serde_json::Value> = matching.iter()
+        .skip(skip)
+        .take(limit)
+        .map(|&i| {
+            let rec = &all_records[i];
+            let comp = rec.variables.get("component").map_or("", |s| s);
+            let msg = rec.variables.get("message").map_or(&rec.text, |s| s);
+            let is_trigger = comp.to_uppercase().starts_with("TRIGGER");
             let op_class = detect_op_class(msg);
-            out_records.push(serde_json::json!({
-                "v": rec.variables,
-                "c": rec.color,
-                "op": op_class,
-                "tr": is_trigger,
-            }));
-        }
-    }
+            serde_json::json!({"v": rec.variables, "c": rec.color, "op": op_class, "tr": is_trigger})
+        })
+        .collect();
 
     Ok(warp::reply::json(&serde_json::json!({
         "r": out_records,
