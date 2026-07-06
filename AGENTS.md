@@ -45,9 +45,15 @@
 - Query handler applies all filters server-side: column filters (case-insensitive substring), date range (ISO datetime), global search (space-separated AND), trigger filter.
 - `date_str_to_iso()` converts datetime strings from both formats (`dd/MM/yy HH:mm:ss,fff` for CORE.OUT, `yy/MM/dd HH:mm:ss` for reu.out) to ISO 8601.
 - Date/time filter uses `<input type="datetime-local">` for hour-level precision; `dateTo` normalized to end-of-minute (`:59`).
-- In-memory record cache (`RwLock<HashMap<String, Vec<Record>>>`): first query loads file into RAM, subsequent queries filter from cache (<10ms).
-- Added `Clone` derives on `Record` and `Color` for cache storage.
-- Increased upload content-length limit from 100 MB to 1 GB.
+- In-memory record cache (`Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>`): first query loads file into RAM with pre-computed ISO timestamps; subsequent queries use `Arc` (no clone) + rayon parallel filtering (<30ms).
+- `CachedDataSet` stores records + pre-computed ISO timestamps; empty-timestamp records partitioned to end.
+- Query handler uses rayon `par_iter()` for parallel CPU-bound filtering across all cores.
+- `Arc<CachedDataSet>` avoids cloning 382K records per query (10x speedup: 0.35s → 0.03s).
+- Upload handler returns only `{ path }` (no record counting); cleanup after 3600s.
+- Query handler returns simplified JSON: `r[]` with `v` (variables), `c` (color), `op` (SQL op class), `tr` (is_trigger).
+- `detect_op_class()` detects SQL operation from first keyword (SELECT, INSERT, etc.) server-side.
+- Global search haystack simplified to `text + message + component` (dropped all-vars map).
+- Date filter uses pre-computed ISO dates; `dateFrom` breaks loop early when records become too old.
 
 ### Code Quality
 - Added `#![warn(clippy::all)]` to lib.rs.
