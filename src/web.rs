@@ -552,9 +552,6 @@ const FRONTEND_HTML: &str = r##"<!DOCTYPE html>
   .refresh-btn:hover { background: var(--bg-hover); border-color: var(--text-muted); }
   .refresh-btn.spin { animation: rspin 0.6s linear; }
   @keyframes rspin { to { transform: rotate(360deg); } }
-  .auto-refresh-toggle { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-muted); cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif; white-space: nowrap; flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--btn-bg); transition: background 0.15s; height: 28px; box-sizing: border-box; }
-  .auto-refresh-toggle:hover { background: var(--bg-hover); border-color: var(--text-muted); }
-  .auto-refresh-toggle input { margin: 0; accent-color: var(--accent); }
 
   .spinner { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); }
   .spinner-ring { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: sp 0.7s linear infinite; }
@@ -627,7 +624,6 @@ const FRONTEND_HTML: &str = r##"<!DOCTYPE html>
     <button id="uploadBtn" class="upload-label" title="Open file">📂 Open file…</button>
   </div>
   <button class="refresh-btn" id="refreshBtn" title="Refresh data">↻</button>
-  <label class="auto-refresh-toggle"><input type="checkbox" id="autoRefresh"> auto</label>
   <label class="trigger-toggle"><input type="checkbox" id="fhideTriggers"> triggers</label>
   <div class="stats"><span id="count">0</span> / <span id="total">0</span></div>
   <button class="theme-toggle" id="themeToggle" title="Toggle theme"></button>
@@ -1091,10 +1087,10 @@ function doRenderAll() {
   });
 }
 
-async function fetchPage(forceRefresh, silent) {
+async function fetchPage(forceRefresh) {
   if (!currentFile && !allRecords.length) { doRenderAll(); return; }
   if (!currentFile) { doRenderAll(); return; }
-  if (!silent) showSpinner();
+  showSpinner();
   const params = new URLSearchParams();
   params.set('file', currentFile);
   params.set('skip', pageSkip);
@@ -1161,8 +1157,6 @@ document.getElementById('uploadBtn').addEventListener('click', () => {
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
-  document.getElementById('autoRefresh').checked = false;
   container.innerHTML = '';
   allRecords = [];
   allTotal = 0;
@@ -1195,23 +1189,12 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-let autoRefreshTimer = null;
-
 document.getElementById('refreshBtn')?.addEventListener('click', () => {
   const btn = document.getElementById('refreshBtn');
   btn.classList.remove('spin');
-  void btn.offsetWidth; // reflow
+  void btn.offsetWidth;
   btn.classList.add('spin');
   fetchPage(true);
-});
-
-document.getElementById('autoRefresh')?.addEventListener('change', (e) => {
-  if (e.target.checked) {
-    autoRefreshTimer = setInterval(() => fetchPage(true, true), 3000);
-  } else {
-    clearInterval(autoRefreshTimer);
-    autoRefreshTimer = null;
-  }
 });
 
 function setTheme(t) {
