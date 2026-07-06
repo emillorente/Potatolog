@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use warp::Filter;
 
@@ -8,9 +8,27 @@ use crate::filters::View;
 use crate::process;
 use crate::readers;
 
+type RecordCache = Arc<RwLock<HashMap<String, Vec<crate::Record>>>>;
+
 #[derive(Clone)]
 struct AppState {
     default_file: String,
+    cache: RecordCache,
+}
+
+fn load_records(path: &str) -> Result<Vec<crate::Record>, warp::Rejection> {
+    let reader = readers::detect_reader(path).map_err(|_| warp::reject::not_found())?;
+    let view = view_for_file(path);
+    Ok(process(reader, view).filter_map(|r| r.ok()).collect())
+}
+
+fn cached_records(state: &AppState, path: &str) -> Result<Vec<crate::Record>, warp::Rejection> {
+    if let Some(records) = state.cache.read().unwrap().get(path) {
+        return Ok(records.clone());
+    }
+    let records = load_records(path)?;
+    state.cache.write().unwrap().insert(path.to_owned(), records.clone());
+    Ok(records)
 }
 
 fn view_for_file(path: &str) -> View {
@@ -47,7 +65,10 @@ pub async fn serve(
     port: u16,
     default_file: String,
 ) {
-    let state = Arc::new(AppState { default_file });
+    let state = Arc::new(AppState {
+        default_file,
+        cache: Arc::new(RwLock::new(HashMap::new())),
+    });
 
     let state_filter = warp::any().map(move || state.clone());
 
@@ -95,10 +116,6 @@ async fn handle_upload(
     if std::fs::write(&file_path, &body[..]).is_err() {
         return Err(warp::reject::not_found());
     }
-    if readers::detect_reader(&file_path).is_err() {
-        std::fs::remove_file(&file_path).ok();
-        return Err(warp::reject::not_found());
-    }
     let fp = file_path.clone();
     tokio::spawn(async move {
         tokio::time::delay_for(std::time::Duration::from_secs(600)).await;
@@ -114,16 +131,9 @@ async fn handle_query(
     state: Arc<AppState>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let path = params.get("file").cloned().unwrap_or(state.default_file.clone());
-    let reader = match readers::detect_reader(&path) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error opening log file {}: {}", path, e);
-            return Err(warp::reject::not_found());
-        }
-    };
+    let all_records = cached_records(&state, &path)?;
     let skip: usize = params.get("skip").and_then(|v| v.parse().ok()).unwrap_or(0);
     let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(5000);
-    let view = view_for_file(&path);
     let f_level = params.get("level").map(String::as_str).unwrap_or("");
     let f_comp = params.get("comp").map(String::as_str).unwrap_or("");
     let f_proc = params.get("proc").map(String::as_str).unwrap_or("");
@@ -142,7 +152,7 @@ async fn handle_query(
     let mut total = 0usize;
     let mut records = Vec::new();
 
-    for rec in process(reader, view).filter_map(|r| r.ok()) {
+    for rec in &all_records {
         let vars = &rec.variables;
         let level = vars.get("level").map_or("", |s| s);
         let comp = vars.get("component").map_or("", |s| s);
@@ -185,7 +195,7 @@ async fn handle_query(
 
         total += 1;
         if total > skip && records.len() < limit {
-            records.push(rec);
+            records.push(rec.clone());
         }
     }
 

@@ -14,6 +14,7 @@ use std::collections::HashMap;
 pub use process::{FilteredLogIterator, process};
 
 #[cfg_attr(feature = "json", derive(serde_derive::Serialize))]
+#[derive(Clone)]
 pub enum Color {
     #[cfg_attr(feature = "json", serde(rename = "default"))]
     Default,
@@ -28,6 +29,7 @@ pub enum Color {
 }
 
 #[cfg_attr(feature = "json", derive(serde_derive::Serialize))]
+#[derive(Clone)]
 pub struct Record {
     pub text: String,
     pub variables: HashMap<String, String>,
