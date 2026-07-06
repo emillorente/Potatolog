@@ -153,7 +153,7 @@ async fn handle_upload(
     }
     let fp = file_path.clone();
     tokio::spawn(async move {
-        tokio::time::delay_for(std::time::Duration::from_secs(600)).await;
+        tokio::time::delay_for(std::time::Duration::from_secs(3600)).await;
         std::fs::remove_file(fp).ok();
     });
     Ok(warp::reply::json(&serde_json::json!({
@@ -266,6 +266,38 @@ async fn handle_query(
             true
         })
         .map(|(i, _)| i)
+        .chain(
+            // Also include empty-timestamp records (non-date filters only)
+            (main_end..all_records.len()).into_par_iter().filter(|&i| {
+                let rec = &all_records[i];
+                let level = rec.variables.get("level").map_or("", |s| s);
+                let comp = rec.variables.get("component").map_or("", |s| s);
+                let proc = rec.variables.get("proc").map_or("", |s| s);
+                let thread = rec.variables.get("thread").map_or("", |s| s);
+                let user = rec.variables.get("user").map_or("", |s| s);
+                let msg = rec.variables.get("message").map_or(&rec.text, |s| s);
+                let source = rec.variables.get("source").map_or("", |s| s);
+                let line = rec.variables.get("line").map_or("", |s| s);
+                let sourceC = rec.variables.get("sourceC").map_or("", |s| s);
+                let lineC = rec.variables.get("lineC").map_or("", |s| s);
+                if !f_level.is_empty() && !level.to_lowercase().contains(&f_level.to_lowercase()) { return false; }
+                if !f_comp.is_empty() && !comp.to_lowercase().contains(&f_comp.to_lowercase()) { return false; }
+                if !f_proc.is_empty() && !proc.to_lowercase().contains(&f_proc.to_lowercase()) { return false; }
+                if !f_thread.is_empty() && !thread.to_lowercase().contains(&f_thread.to_lowercase()) { return false; }
+                if !f_user.is_empty() && user.to_lowercase() != f_user.to_lowercase() { return false; }
+                if !f_msg.is_empty() && !msg.to_lowercase().contains(&f_msg.to_lowercase()) { return false; }
+                if !f_source.is_empty() && !source.to_lowercase().contains(&f_source.to_lowercase()) { return false; }
+                if !f_line.is_empty() && !line.to_lowercase().contains(&f_line.to_lowercase()) { return false; }
+                if !f_sourceC.is_empty() && !sourceC.to_lowercase().contains(&f_sourceC.to_lowercase()) { return false; }
+                if !f_lineC.is_empty() && !lineC.to_lowercase().contains(&f_lineC.to_lowercase()) { return false; }
+                if f_hideTriggers && comp.to_uppercase().starts_with("TRIGGER") { return false; }
+                if !search_q.is_empty() {
+                    let haystack = format!("{} {} {}", rec.text, msg, comp).to_lowercase();
+                    if !search_q.split_whitespace().all(|w| haystack.contains(w)) { return false; }
+                }
+                true
+            })
+        )
         .collect();
 
     let total = matching.len();
