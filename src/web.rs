@@ -118,6 +118,22 @@ pub async fn serve(
         cache: Arc::new(RwLock::new(HashMap::new())),
     });
 
+    // Open browser when ready (app launched without a file from .app bundle)
+    let (tx, rx) = std::sync::mpsc::channel();
+    let port_u16 = port;
+    std::thread::spawn(move || {
+        rx.recv().ok();
+        for _ in 0..20 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if std::net::TcpStream::connect((host, port_u16)).is_ok() {
+                std::process::Command::new("open")
+                    .arg(format!("http://{}:{}", host, port_u16))
+                    .spawn().ok();
+                break;
+            }
+        }
+    });
+
     let state_filter = warp::any().map(move || state.clone());
 
     let frontend = warp::path::end()
@@ -150,6 +166,7 @@ pub async fn serve(
     let routes = frontend.or(query).or(upload);
 
     eprintln!("Starting server on {}:{}", host, port);
+    tx.send(()).ok();
     warp::serve(routes).run((host, port)).await;
 }
 

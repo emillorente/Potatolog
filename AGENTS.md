@@ -140,31 +140,6 @@ mkdir -p target/release/LogViewer.app/Contents/{MacOS,Resources}
 # Copy binary with a distinct name (lv-core)
 cp target/release/logviewer target/release/LogViewer.app/Contents/MacOS/lv-core
 
-# Create launcher script (entry point)
-cat > target/release/LogViewer.app/Contents/MacOS/LogViewer <<'SCRIPT'
-#!/bin/bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# Start server in background (no pre-loaded file — use the UI's "Open file…" button)
-"$DIR/lv-core" web &
-SERVER_PID=$!
-
-# Wait for server to be ready (max 10s)
-for i in $(seq 1 20); do
-    sleep 0.5
-    if curl -sf http://127.0.0.1:8000/ > /dev/null 2>&1; then
-        break
-    fi
-done
-
-# Open browser once server is up
-open http://127.0.0.1:8000
-
-# Keep server running in foreground
-wait $SERVER_PID
-SCRIPT
-chmod +x target/release/LogViewer.app/Contents/MacOS/LogViewer
-
 # Create Info.plist
 cat > target/release/LogViewer.app/Contents/Info.plist <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -173,7 +148,7 @@ cat > target/release/LogViewer.app/Contents/Info.plist <<'EOF'
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>LogViewer</string>
+    <string>lv-core</string>
     <key>CFBundleIdentifier</key>
     <string>com.remirampin.logviewer</string>
     <key>CFBundleName</key>
@@ -190,6 +165,8 @@ cat > target/release/LogViewer.app/Contents/Info.plist <<'EOF'
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>LSUIElement</key>
+    <true/>
 </dict>
 </plist>
 EOF
@@ -204,7 +181,7 @@ rm -rf target/release/LogViewer.app/Contents/_CodeSignature
 codesign --force --deep --sign - target/release/LogViewer.app
 ```
 
-The binary is automatically ad-hoc signed by the linker (arm64 on Apple Silicon, x86_64 on Intel). Double-click `LogViewer.app` in Finder to launch — it will show a file picker dialog, then start the web server and open your browser.
+The binary is automatically ad-hoc signed by the linker (arm64 on Apple Silicon, x86_64 on Intel). Double-click `LogViewer.app` in Finder to launch — it will start the web server (no dock icon, no bouncing) and open your browser automatically.
 
 ### Cross-compile for Windows from macOS/Linux
 
