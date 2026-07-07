@@ -207,8 +207,12 @@ EOF
 
 # (Optional) add a .icns icon to Resources/
 
-# Re-sign the app (required for the bundle to be recognized by macOS)
-codesign --force --sign - target/release/LogViewer.app
+# Copy view definition files into the bundle (required for log parsing)
+cp view_core.json view_reu.json target/release/LogViewer.app/Contents/Resources/
+
+# Remove old signature and re-sign (required for macOS to recognize the bundle)
+rm -rf target/release/LogViewer.app/Contents/_CodeSignature
+codesign --force --deep --sign - target/release/LogViewer.app
 ```
 
 The binary is automatically ad-hoc signed by the linker (arm64 on Apple Silicon, x86_64 on Intel). Double-click `LogViewer.app` in Finder to launch — it will show a file picker dialog, then start the web server and open your browser.

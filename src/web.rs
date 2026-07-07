@@ -79,6 +79,7 @@ fn view_for_file(path: &str) -> View {
     if view_file.is_empty() {
         return View { operations: vec![] };
     }
+    // Try: next to the log file
     let view_path = std::path::Path::new(path)
         .parent().unwrap_or(std::path::Path::new("."))
         .join(view_file);
@@ -87,10 +88,22 @@ fn view_for_file(path: &str) -> View {
             return v;
         }
     }
-    if let Ok(file) = File::open(view_file) {
-        if let Ok(v) = serde_json::from_reader(file) {
-            return v;
+    // Try: relative to the executable
+    if let Ok(exe) = std::env::current_exe() {
+        let exe_dir = exe.parent().unwrap_or(std::path::Path::new("."));
+        let view_path = exe_dir.join(view_file);
+        if let Ok(file) = File::open(&view_path) {
+            if let Ok(v) = serde_json::from_reader(file) { return v; }
         }
+        // Try: Resources/ next to the executable (macOS .app bundle)
+        let view_path = exe_dir.join("../Resources").join(view_file);
+        if let Ok(file) = File::open(&view_path) {
+            if let Ok(v) = serde_json::from_reader(file) { return v; }
+        }
+    }
+    // Try: current working directory
+    if let Ok(file) = File::open(view_file) {
+        if let Ok(v) = serde_json::from_reader(file) { return v; }
     }
     View { operations: vec![] }
 }
