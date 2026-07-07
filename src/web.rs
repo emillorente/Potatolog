@@ -15,7 +15,6 @@ type RecordCache = Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>;
 struct CachedDataSet {
     records: Vec<crate::Record>,
     iso_dates: Vec<Option<String>>,
-    empty_ts: usize,
 }
 
 #[derive(Clone)]
@@ -30,11 +29,9 @@ fn load_records(path: &str) -> Result<CachedDataSet, warp::Rejection> {
     let mut records: Vec<crate::Record> = process(reader, view).filter_map(|r| r.ok()).collect();
     records.reverse();
     let mut with_ts: Vec<(crate::Record, Option<String>)> = Vec::with_capacity(records.len());
-    let mut empty_ts = 0usize;
     for rec in records {
         let ds = rec.variables.get("timestamp").or_else(|| rec.variables.get("time")).cloned().unwrap_or_default();
         if ds.is_empty() {
-            empty_ts += 1;
             with_ts.push((rec, None));
         } else {
             with_ts.push((rec, date_str_to_iso(&ds)));
@@ -52,7 +49,7 @@ fn load_records(path: &str) -> Result<CachedDataSet, warp::Rejection> {
     }
     let iso_dates: Vec<Option<String>> = with_ts.iter().map(|(_, iso)| iso.clone()).collect();
     let records: Vec<crate::Record> = with_ts.into_iter().map(|(r, _)| r).collect();
-    Ok(CachedDataSet { records, iso_dates, empty_ts })
+    Ok(CachedDataSet { records, iso_dates })
 }
 
 fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Arc<CachedDataSet>, warp::Rejection> {
@@ -217,7 +214,7 @@ async fn handle_query(
     let data = cached_records(&state, &path, refresh)?;
     let all_records = &data.records;
     let iso_dates = &data.iso_dates;
-    let empty_ts = data.empty_ts;
+    let empty_ts = iso_dates.iter().filter(|d| d.is_none()).count();
     let skip: usize = params.get("skip").and_then(|v| v.parse().ok()).unwrap_or(0);
     let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(5000);
     let f_level = params.get("level").map(String::as_str).unwrap_or("");
@@ -717,7 +714,6 @@ const FRONTEND_HTML: &str = r##"<!DOCTYPE html>
   .sql-modal .modal-body.op-truncate { border-left: 3px solid #f44747; }
   .sql-modal .modal-body .kw-select { color: #569cd6 !important; }
   .sql-modal .modal-body .kw-with   { color: #569cd6 !important; }
-  .sql-modal .modal-body .kw-insert { color: #4ec9b0 !important; }
   .sql-modal .modal-body .kw-insert { color: #4ec9b0 !important; }
   .sql-modal .modal-body .kw-update { color: #dcdcaa !important; }
   .sql-modal .modal-body .kw-delete { color: #f44747 !important; }

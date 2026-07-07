@@ -126,6 +126,20 @@ cargo build --release --all-features
 #   Windows:     target\release\logviewer.exe
 ```
 
+### Run
+
+```bash
+# Web server (opens on http://127.0.0.1:8000, no pre-loaded file — upload via UI)
+# If no subcommand given, defaults to `web`
+./target/release/logviewer
+
+# Same as above, explicit:
+./target/release/logviewer web
+
+# Process a log file with a view (CLI mode, JSON lines output)
+./target/release/logviewer process view_core.json examples/CORE.OUT
+```
+
 ### Build macOS .app bundle
 
 After compiling, create a standalone `.app` bundle:
