@@ -120,7 +120,8 @@ pub async fn serve(
         .and(warp::get())
         .and(warp::query::<HashMap<String, String>>())
         .and(state_filter.clone())
-        .and_then(handle_query);
+        .and_then(handle_query)
+        .boxed();
 
     let upload = warp::path("api")
         .and(warp::path("upload"))
@@ -130,7 +131,8 @@ pub async fn serve(
         .and(warp::body::content_length_limit(1024 * 1024 * 1024))
         .and(warp::body::bytes())
         .and(state_filter)
-        .and_then(handle_upload);
+        .and_then(handle_upload)
+        .boxed();
 
     let routes = frontend.or(query).or(upload);
 
@@ -1185,11 +1187,10 @@ function doRenderAll() {
 }
 
 async function fetchPage(forceRefresh) {
-  if (!currentFile && !allRecords.length) { doRenderAll(); return; }
-  if (!currentFile) { doRenderAll(); return; }
+  if (!currentFile && !window.__hasDefaultFile && !allRecords.length) { doRenderAll(); return; }
   showSpinner();
   const params = new URLSearchParams();
-  params.set('file', currentFile);
+  if (currentFile) params.set('file', currentFile);
   params.set('skip', pageSkip);
   params.set('limit', pageLimit);
   if (forceRefresh === true) params.set('refresh', 'true');
@@ -1312,7 +1313,9 @@ document.getElementById('themeToggle')?.addEventListener('click', () => {
 })();
 
 (function init() {
-  doRenderAll();
+  window.__hasDefaultFile = true;
+  pageSkip = 0;
+  fetchPage();
 })();
 
 function showSpinner() { document.getElementById('spinner').style.display = 'flex'; }

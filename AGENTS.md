@@ -126,6 +126,93 @@ cargo build --release --all-features
 #   Windows:     target\release\logviewer.exe
 ```
 
+### Build macOS .app bundle
+
+After compiling, create a standalone `.app` bundle:
+
+```bash
+# Build the binary first
+cargo build --release --all-features
+
+# Create bundle structure
+mkdir -p target/release/LogViewer.app/Contents/{MacOS,Resources}
+
+# Copy binary with a distinct name (lv-core)
+cp target/release/logviewer target/release/LogViewer.app/Contents/MacOS/lv-core
+
+# Create launcher script (entry point)
+cat > target/release/LogViewer.app/Contents/MacOS/LogViewer <<'SCRIPT'
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# If a file was dropped on the app, use it
+if [ -f "$1" ]; then
+    LOG="$1"
+else
+    # Show file picker dialog
+    LOG=$(osascript -e 'POSIX path of (choose file with prompt "Select a log file:")' 2>/dev/null)
+    if [ -z "$LOG" ]; then
+        exit 1
+    fi
+fi
+
+# Start server in background
+"$DIR/lv-core" web "$LOG" &
+SERVER_PID=$!
+
+# Wait for server to be ready (max 10s)
+for i in $(seq 1 20); do
+    sleep 0.5
+    if curl -sf http://127.0.0.1:8000/ > /dev/null 2>&1; then
+        break
+    fi
+done
+
+# Open browser once server is up
+open http://127.0.0.1:8000
+
+# Keep server running in foreground
+wait $SERVER_PID
+SCRIPT
+chmod +x target/release/LogViewer.app/Contents/MacOS/LogViewer
+
+# Create Info.plist
+cat > target/release/LogViewer.app/Contents/Info.plist <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>LogViewer</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.remirampin.logviewer</string>
+    <key>CFBundleName</key>
+    <string>LogViewer</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>logviewer</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# (Optional) add a .icns icon to Resources/
+
+# Re-sign the app (required for the bundle to be recognized by macOS)
+codesign --force --sign - target/release/LogViewer.app
+```
+
+The binary is automatically ad-hoc signed by the linker (arm64 on Apple Silicon, x86_64 on Intel). Double-click `LogViewer.app` in Finder to launch — it will show a file picker dialog, then start the web server and open your browser.
+
 ### Cross-compile for Windows from macOS/Linux
 
 ```bash
