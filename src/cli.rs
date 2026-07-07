@@ -1,6 +1,7 @@
 use clap::{App, Arg, SubCommand, crate_version};
 use std::fs::File;
 use std::io::{Write, stdout};
+#[cfg(not(feature = "web"))]
 use std::process;
 
 use logviewer::process;
@@ -36,6 +37,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let matches = app.get_matches();
 
+    #[cfg(feature = "web")]
+    let (command, matches) = match matches.subcommand() {
+        (_, None) => ("web", &matches),
+        (command, Some(matches)) => (command, matches),
+    };
+    #[cfg(not(feature = "web"))]
     let (command, matches) = match matches.subcommand() {
         (_, None) => {
             eprintln!("No command specified.");
