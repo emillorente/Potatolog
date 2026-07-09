@@ -1,0 +1,22 @@
+[package]
+name = "logviewer-desktop"
+version = "0.1.0"
+description = "LogViewer desktop app"
+authors = ["Remi Rampin <r@remirampin.com>"]
+edition = "2021"
+
+[lib]
+name = "logviewer_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "logviewer-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+logviewer = { path = "..", default-features = false, features = ["json", "web"] }
+tauri = { version = "2.6.3", features = [] }
+tokio = { version = "1", features = ["rt-multi-thread"] }

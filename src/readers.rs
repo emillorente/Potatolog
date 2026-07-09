@@ -195,3 +195,75 @@ pub fn detect_reader<P: AsRef<Path>>(path: P) -> Result<Box<dyn LogReader>, IoEr
         Ok(Box::new(LogFile::open(path)?))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+    }
+
+    fn read_all(mut reader: Box<dyn LogReader>) -> Vec<String> {
+        let mut records = Vec::new();
+        while let Some(rec) = reader.read_record().unwrap() {
+            records.push(rec);
+        }
+        records
+    }
+
+    #[test]
+    fn log_core_reader_reads_delimited_records() {
+        let reader = LogCoreReader::open(fixture("sample_core.out")).unwrap();
+        let records = read_all(Box::new(reader));
+        assert_eq!(records.len(), 2);
+        assert!(records[0].contains("~alice~"));
+        assert!(records[0].ends_with("~@_~"));
+        assert!(records[1].contains("~bob~"));
+    }
+
+    #[test]
+    fn log_query_reader_merges_header_and_sql() {
+        let reader = LogQueryReader::open(fixture("sample_reu.out")).unwrap();
+        let records = read_all(Box::new(reader));
+        assert_eq!(records.len(), 2);
+        assert!(records[0].contains("SELECT * FROM users"));
+        assert!(records[0].contains("CONTEXT@"));
+        assert!(records[1].contains("INSERT INTO logs"));
+    }
+
+    #[test]
+    fn log_file_reads_line_by_line() {
+        let reader = LogFile::open(fixture("sample_plain.log")).unwrap();
+        let records = read_all(Box::new(reader));
+        assert_eq!(records, vec!["line one", "line two", "line three"]);
+    }
+
+    #[test]
+    fn detect_reader_picks_core_format() {
+        let path = fixture("sample_core.out");
+        let reader = detect_reader(&path).unwrap();
+        let records = read_all(reader);
+        assert_eq!(records.len(), 2);
+    }
+
+    #[test]
+    fn detect_reader_picks_reu_format() {
+        let path = fixture("sample_reu.out");
+        let reader = detect_reader(&path).unwrap();
+        let records = read_all(reader);
+        assert_eq!(records.len(), 2);
+    }
+
+    #[test]
+    fn detect_reader_picks_plain_format() {
+        let path = fixture("sample_plain.log");
+        let reader = detect_reader(&path).unwrap();
+        let records = read_all(reader);
+        assert_eq!(records.len(), 3);
+    }
+}

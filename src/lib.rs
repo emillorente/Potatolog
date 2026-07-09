@@ -2,6 +2,8 @@
 
 pub mod filters;
 mod process;
+#[cfg(feature = "json")]
+pub mod query;
 pub mod readers;
 #[cfg(feature = "web")]
 pub mod web;
