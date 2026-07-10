@@ -46,13 +46,6 @@ pub async fn serve(
             warp::reply::with_header(API_JS, "content-type", "application/javascript; charset=utf-8")
         });
 
-    let open_file = warp::path("api")
-        .and(warp::path("open"))
-        .and(warp::path::end())
-        .and(warp::get())
-        .and_then(handle_open_file)
-        .boxed();
-
     let query_route = warp::path("api")
         .and(warp::path("query"))
         .and(warp::path::end())
@@ -73,35 +66,13 @@ pub async fn serve(
         .and_then(handle_upload)
         .boxed();
 
-    let routes = frontend.or(api_js).or(open_file).or(query_route).or(upload);
+    let routes = frontend.or(api_js).or(query_route).or(upload);
 
-    eprintln!("Starting server on {}:{}", host, port);
     log_message(&format!("Starting server on {host}:{port}"));
     if open_browser {
         tx.send(()).ok();
     }
     warp::serve(routes).run((host, port)).await;
-}
-
-async fn handle_open_file() -> Result<impl warp::Reply, warp::Rejection> {
-    log_message("api/open: showing file dialog");
-    let picked = tokio::task::spawn_blocking(|| {
-        rfd::FileDialog::new()
-            .add_filter("Log files", &["out", "OUT", "log", "txt"])
-            .set_title("Open log file")
-            .pick_file()
-    })
-    .await
-    .map_err(|_| warp::reject::not_found())?;
-
-    let Some(path) = picked else {
-        log_message("api/open: cancelled");
-        return Ok(warp::reply::json(&serde_json::json!({ "path": null })));
-    };
-
-    let path_str = path.to_string_lossy().into_owned();
-    log_message(&format!("api/open: selected {path_str}"));
-    Ok(warp::reply::json(&serde_json::json!({ "path": path_str })))
 }
 
 async fn handle_upload(
@@ -128,7 +99,7 @@ async fn handle_upload(
     }
     let fp = file_path.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        tokio::time::delay_for(std::time::Duration::from_secs(3600)).await;
         std::fs::remove_file(fp).ok();
     });
     Ok(warp::reply::json(&serde_json::json!({
@@ -149,7 +120,13 @@ async fn handle_query(
 fn open_browser_tab(url: &str) {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").arg(url).spawn().ok();
+        let _ = std::process::Command::new("open").arg(url).spawn();
+        // Bring browser to front so the user sees the tab
+        let script = format!(
+            r#"tell application "System Events" to set frontmost of first process whose name contains "Safari" or name contains "Chrome" or name contains "Firefox" or name contains "Edge" or name contains "Arc" to true"#
+        );
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _ = std::process::Command::new("osascript").args(["-e", &script]).spawn();
     }
     #[cfg(target_os = "windows")]
     {

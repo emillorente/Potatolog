@@ -140,8 +140,9 @@
   .upload-btn {
     position: relative;
     flex-shrink: 0;
+    overflow: hidden;
   }
-  .upload-btn input[type="file"] { display: none; }
+
   .upload-btn .upload-label {
     display: inline-flex;
     align-items: center;
@@ -158,7 +159,7 @@
     font-family: 'JetBrains Mono', monospace;
   }
   .upload-btn .upload-label:hover { border-color: var(--border); color: var(--text-primary); background: var(--bg-hover); }
-  .upload-btn input[type="file"]:focus + .upload-label { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
   .stats {
     font-size: 10.5px; color: var(--text-secondary);
     white-space: nowrap; text-align: right; margin-left: auto;
@@ -397,7 +398,8 @@
     <input type="text" id="search" placeholder="Search all..." autofocus>
   </div>
   <div class="upload-btn">
-    <input type="file" id="file-input" hidden>
+
+    <input type="file" id="file-input" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0">
     <button id="uploadBtn" class="upload-label" title="Open file">Open file...</button>
   </div>
   <button class="refresh-btn" id="refreshBtn" title="Refresh data"></button>
@@ -419,6 +421,8 @@
 </div>
 <script src="api.js"></script>
 <script>
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
 const COLORS = [
   '#f59e0b','#3b82f6','#10b981','#8b5cf6','#ec4899','#06b6d4',
   '#84cc16','#f43f5e','#14b8a6','#a855f7','#eab308','#6366f1',
@@ -442,6 +446,7 @@ const OP_COLORS = {
 };
 
 let allRecords = [], currentFile = '', allTotal = 0, pageSkip = 0, pageLimit = 2000;
+let colVisibilityCache = { file: '', empty: null };
 const container = document.getElementById('log-container');
 const searchInput = document.getElementById('search');
 const countEl = document.getElementById('count');
@@ -743,6 +748,8 @@ function buildPagin() {
     '</div>';
 }
 
+const debouncedFetch = debounce(fetchPage, 150);
+
 function doRenderAll() {
   const filtered = getFiltered();
   const colgroup = '<colgroup>' +
@@ -813,7 +820,7 @@ function doRenderAll() {
       else if (id === 'fline') colFilters.line = inp.value;
       else if (id === 'fsourceC') colFilters.sourceC = inp.value;
       else if (id === 'flineC') colFilters.lineC = inp.value;
-      fetchPage();
+      debouncedFetch();
     });
   });
 
@@ -906,6 +913,10 @@ async function fetchPage(forceRefresh) {
 }
 
 function updateColVisibility() {
+  if (colVisibilityCache.file === currentFile && colVisibilityCache.empty !== null) {
+    applyColVisibility(colVisibilityCache.empty);
+    return;
+  }
   // nth-child by variable name: 1=bar(none), 2=level, 3=ts, 4=comp, 5=proc, 6=thread, 7=user, 8=msg, 9=source, 10=line, 11=sourceC, 12=lineC
   const COL_VARS = [null, 'level', 'timestamp', 'component', 'proc', 'thread', 'user', 'message', 'source', 'line', 'sourceC', 'lineC'];
   const empty = [];
@@ -917,6 +928,11 @@ function updateColVisibility() {
     }
     if (!has) empty.push(n);
   }
+  colVisibilityCache = { file: currentFile, empty };
+  applyColVisibility(empty);
+}
+
+function applyColVisibility(empty) {
   let el = document.getElementById('colhider');
   if (!el) { el = document.createElement('style'); el.id = 'colhider'; document.head.appendChild(el); }
   if (empty.length === 0) { el.textContent = ''; return; }
@@ -924,48 +940,32 @@ function updateColVisibility() {
   el.textContent = sels.join(',') + '{display:none}';
 }
 
-searchInput.addEventListener('input', fetchPage);
+searchInput.addEventListener('input', debouncedFetch);
 
-document.getElementById('uploadBtn').addEventListener('click', async () => {
-  if (typeof useHttpApi === 'function' && useHttpApi()) {
-    await openLogFileFromDialog();
-    return;
-  }
-  document.getElementById('file-input').click();
-});
-
-async function openLogFileFromDialog() {
-  const uploadBtn = document.getElementById('uploadBtn');
-  const prevLabel = uploadBtn ? uploadBtn.textContent : '';
+document.getElementById('file-input').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
   showSpinner();
-  document.getElementById('total').textContent = '...';
   await new Promise(r => setTimeout(r, 20));
   try {
-    if (uploadBtn) uploadBtn.textContent = 'Choose file...';
-    const data = await apiPickLogFile();
-    if (!data || !data.path) {
-      hideSpinner();
-      document.getElementById('total').textContent = '0';
-      if (uploadBtn) uploadBtn.textContent = prevLabel;
-      return;
-    }
-    if (uploadBtn) uploadBtn.textContent = 'Loading...';
+    const data = await apiUploadFile(file);
     await resetAndLoadFile(data.path);
-    if (uploadBtn) uploadBtn.textContent = prevLabel;
-  } catch (err) {
-    hideSpinner();
-    console.error('open file failed', err);
+  } catch (_) {
+    container.innerHTML = '';
+    allRecords = []; allTotal = 0; currentFile = '';
     document.getElementById('count').textContent = 'error';
-    document.getElementById('total').textContent = String(err.message || err);
-    if (uploadBtn) uploadBtn.textContent = prevLabel;
+    doRenderAll();
   }
-}
+  hideSpinner();
+});
 
 async function resetAndLoadFile(path) {
   container.innerHTML = '';
   allRecords = [];
   allTotal = 0;
   currentFile = path;
+  colVisibilityCache = { file: '', empty: null };
   document.getElementById('count').textContent = '0';
   document.getElementById('total').textContent = '0';
   pageSkip = 0;
@@ -976,26 +976,7 @@ async function resetAndLoadFile(path) {
   await fetchPage();
 }
 
-document.getElementById('file-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  showSpinner();
-  await new Promise(r => setTimeout(r, 20));
-  try {
-    const data = await apiUploadFile(file);
-    await resetAndLoadFile(data.path);
-  } catch (_) {
-    hideSpinner();
-    container.innerHTML = '';
-    allRecords = [];
-    allTotal = 0;
-    currentFile = '';
-    document.getElementById('count').textContent = 'error';
-    doRenderAll();
-  }
-  hideSpinner();
-  e.target.value = '';
-});
+
 
 document.getElementById('refreshBtn')?.addEventListener('click', () => {
   const btn = document.getElementById('refreshBtn');

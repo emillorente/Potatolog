@@ -14,6 +14,7 @@ type RecordCache = Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>;
 struct CachedDataSet {
     records: Vec<crate::Record>,
     iso_dates: Vec<Option<String>>,
+    search_texts: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -61,7 +62,12 @@ pub fn log_message(msg: &str) {
                 .append(true)
                 .open(log_path)
             {
-                let _ = writeln!(file, "{msg}");
+                use std::time::SystemTime;
+                let ts = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let _ = writeln!(file, "[{ts}] {msg}");
             }
         }
     }
@@ -85,6 +91,7 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
     let data = cached_records(state, &path, refresh)?;
     let all_records = &data.records;
     let iso_dates = &data.iso_dates;
+    let search_texts = &data.search_texts;
     let empty_ts = iso_dates.iter().filter(|d| d.is_none()).count();
     let skip: usize = params.get("skip").and_then(|v| v.parse().ok()).unwrap_or(0);
     let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(2000);
@@ -116,70 +123,92 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
     let has_date_from = !f_date_from.is_empty();
     let has_date_to = !f_date_to.is_empty();
     let main_end = all_records.len() - empty_ts;
-    let date_break = if has_date_from {
-        let mut e = main_end;
-        for i in 0..main_end {
-            if let Some(ref iso) = iso_dates[i] {
-                if iso.as_str() < f_date_from {
-                    e = i;
-                    break;
+
+    let no_active_filters = f_level.is_empty()
+        && f_comp.is_empty()
+        && f_proc.is_empty()
+        && f_thread.is_empty()
+        && f_users.is_empty()
+        && f_msg.is_empty()
+        && f_source.is_empty()
+        && f_line.is_empty()
+        && f_source_c.is_empty()
+        && f_line_c.is_empty()
+        && !f_hide_triggers
+        && !has_date_from
+        && !has_date_to
+        && search_q.is_empty();
+
+    let matching: Vec<usize> = if no_active_filters {
+        (0..all_records.len()).collect()
+    } else {
+        let date_break = if has_date_from {
+            let mut e = main_end;
+            for i in 0..main_end {
+                if let Some(ref iso) = iso_dates[i] {
+                    if iso.as_str() < f_date_from {
+                        e = i;
+                        break;
+                    }
                 }
             }
-        }
-        e
-    } else {
-        main_end
-    };
+            e
+        } else {
+            main_end
+        };
 
-    let matching: Vec<usize> = all_records[..date_break]
-        .par_iter()
-        .enumerate()
-        .filter(|(i, rec)| {
-            record_matches(
-                rec,
-                *i,
-                main_end,
-                iso_dates,
-                f_level,
-                f_comp,
-                f_proc,
-                f_thread,
-                &f_users,
-                f_msg,
-                f_source,
-                f_line,
-                f_source_c,
-                f_line_c,
-                f_hide_triggers,
-                has_date_to,
-                f_date_to_ref,
-                search_q,
-            )
-        })
-        .map(|(i, _)| i)
-        .chain((main_end..all_records.len()).into_par_iter().filter(|&i| {
-            record_matches(
-                &all_records[i],
-                i,
-                main_end,
-                iso_dates,
-                f_level,
-                f_comp,
-                f_proc,
-                f_thread,
-                &f_users,
-                f_msg,
-                f_source,
-                f_line,
-                f_source_c,
-                f_line_c,
-                f_hide_triggers,
-                false,
-                f_date_to_ref,
-                search_q,
-            )
-        }))
-        .collect();
+        all_records[..date_break]
+            .par_iter()
+            .enumerate()
+            .filter(|(i, rec)| {
+                record_matches(
+                    rec,
+                    *i,
+                    main_end,
+                    iso_dates,
+                    search_texts,
+                    f_level,
+                    f_comp,
+                    f_proc,
+                    f_thread,
+                    &f_users,
+                    f_msg,
+                    f_source,
+                    f_line,
+                    f_source_c,
+                    f_line_c,
+                    f_hide_triggers,
+                    has_date_to,
+                    f_date_to_ref,
+                    search_q,
+                )
+            })
+            .map(|(i, _)| i)
+            .chain((main_end..all_records.len()).into_par_iter().filter(|&i| {
+                record_matches(
+                    &all_records[i],
+                    i,
+                    main_end,
+                    iso_dates,
+                    search_texts,
+                    f_level,
+                    f_comp,
+                    f_proc,
+                    f_thread,
+                    &f_users,
+                    f_msg,
+                    f_source,
+                    f_line,
+                    f_source_c,
+                    f_line_c,
+                    f_hide_triggers,
+                    false,
+                    f_date_to_ref,
+                    search_q,
+                )
+            }))
+            .collect()
+    };
 
     let total = matching.len();
     let out_records: Vec<serde_json::Value> = matching
@@ -201,6 +230,7 @@ fn record_matches(
     i: usize,
     main_end: usize,
     iso_dates: &[Option<String>],
+    search_texts: &[String],
     f_level: &str,
     f_comp: &str,
     f_proc: &str,
@@ -216,16 +246,16 @@ fn record_matches(
     f_date_to_ref: &str,
     search_q: &str,
 ) -> bool {
-    let level = rec.variables.get("level").map_or("", |s| s);
-    let comp = rec.variables.get("component").map_or("", |s| s);
-    let proc = rec.variables.get("proc").map_or("", |s| s);
-    let thread = rec.variables.get("thread").map_or("", |s| s);
-    let user = rec.variables.get("user").map_or("", |s| s);
-    let msg = rec.variables.get("message").map_or(&rec.text, |s| s);
-    let source = rec.variables.get("source").map_or("", |s| s);
-    let line = rec.variables.get("line").map_or("", |s| s);
-    let source_c = rec.variables.get("sourceC").map_or("", |s| s);
-    let line_c = rec.variables.get("lineC").map_or("", |s| s);
+    let level = rec.get("level").unwrap_or("");
+    let comp = rec.get("component").unwrap_or("");
+    let proc = rec.get("proc").unwrap_or("");
+    let thread = rec.get("thread").unwrap_or("");
+    let user = rec.get("user").unwrap_or("");
+    let msg = rec.get("message").unwrap_or(&rec.text);
+    let source = rec.get("source").unwrap_or("");
+    let line = rec.get("line").unwrap_or("");
+    let source_c = rec.get("sourceC").unwrap_or("");
+    let line_c = rec.get("lineC").unwrap_or("");
 
     if !f_level.is_empty() && !level.to_lowercase().contains(&f_level.to_lowercase()) {
         return false;
@@ -268,10 +298,9 @@ fn record_matches(
         }
     }
     if !search_q.is_empty() {
-        let haystack = format!("{} {} {}", rec.text, msg, comp).to_lowercase();
         if !search_q
             .split_whitespace()
-            .all(|w| haystack.contains(w))
+            .all(|w| search_texts[i].contains(w))
         {
             return false;
         }
@@ -280,12 +309,16 @@ fn record_matches(
 }
 
 fn record_to_json(rec: &crate::Record) -> serde_json::Value {
-    let comp = rec.variables.get("component").map_or("", |s| s);
-    let msg = rec.variables.get("message").map_or(&rec.text, |s| s);
+    let comp = rec.get("component").unwrap_or("");
+    let msg = rec.get("message").unwrap_or(&rec.text);
     let is_trigger = comp.to_uppercase().starts_with("TRIGGER");
     let op_class = detect_op_class(msg);
+    let mut vars = serde_json::Map::with_capacity(rec.variables.len());
+    for (k, v) in &rec.variables {
+        vars.insert(k.clone(), serde_json::Value::String(v.clone()));
+    }
     serde_json::json!({
-        "v": rec.variables,
+        "v": serde_json::Value::Object(vars),
         "c": rec.color,
         "op": op_class,
         "tr": is_trigger,
@@ -300,11 +333,10 @@ fn load_records(path: &str) -> Result<CachedDataSet, QueryError> {
     let mut with_ts: Vec<(crate::Record, Option<String>)> = Vec::with_capacity(records.len());
     for rec in records {
         let ds = rec
-            .variables
             .get("timestamp")
-            .or_else(|| rec.variables.get("time"))
-            .cloned()
-            .unwrap_or_default();
+            .or_else(|| rec.get("time"))
+            .unwrap_or("")
+            .to_string();
         if ds.is_empty() {
             with_ts.push((rec, None));
         } else {
@@ -322,7 +354,15 @@ fn load_records(path: &str) -> Result<CachedDataSet, QueryError> {
     }
     let iso_dates: Vec<Option<String>> = with_ts.iter().map(|(_, iso)| iso.clone()).collect();
     let records: Vec<crate::Record> = with_ts.into_iter().map(|(r, _)| r).collect();
-    Ok(CachedDataSet { records, iso_dates })
+    let search_texts: Vec<String> = records
+        .iter()
+        .map(|rec| {
+            let msg = rec.get("message").unwrap_or(&rec.text);
+            let comp = rec.get("component").unwrap_or("");
+            format!("{} {} {}", rec.text, msg, comp).to_lowercase()
+        })
+        .collect();
+    Ok(CachedDataSet { records, iso_dates, search_texts })
 }
 
 fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Arc<CachedDataSet>, QueryError> {

@@ -7,11 +7,11 @@ pub mod query;
 pub mod readers;
 #[cfg(feature = "web")]
 pub mod web;
+#[cfg(feature = "desktop")]
+pub mod desktop;
 
 #[cfg(test)]
 mod tests;
-
-use std::collections::HashMap;
 
 pub use process::{FilteredLogIterator, process};
 
@@ -34,7 +34,7 @@ pub enum Color {
 #[derive(Clone)]
 pub struct Record {
     pub text: String,
-    pub variables: HashMap<String, String>,
+    pub variables: Vec<(String, String)>,
     pub color: Color,
 }
 
@@ -42,8 +42,15 @@ impl Record {
     fn new(text: String) -> Record {
         Record {
             text,
-            variables: HashMap::new(),
+            variables: Vec::new(),
             color: Color::Default,
         }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.variables
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 }

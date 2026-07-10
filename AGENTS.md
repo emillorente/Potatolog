@@ -98,7 +98,7 @@
 - `src/filters.rs`: regex patterns, View/Operation/Condition types, Display impls.
 - `src/tests.rs`: unit tests.
 - `src/lib.rs`: library root, `Record`, `Color` types.
-- `Cargo.toml`: features (cli, web, json), edition 2021.
+- `Cargo.toml`: features (cli, web, json, desktop), edition 2021.
 - `view_core.json`: regex view for CORE.OUT (15 `~`-delimited fields, 11 captured).
 - `view_reu.json`: regex view for reu.out (CONTEXT fields + SQL).
 - `examples/CORE.OUT`: ~382K-record delimited log file (156 MB, some records span 22+ lines).
@@ -129,11 +129,14 @@ cargo build --release --all-features
 ### Run
 
 ```bash
-# Web server (opens on http://127.0.0.1:8000, no pre-loaded file — upload via UI)
-# If no subcommand given, defaults to `web`
+# Desktop app (native window with WebView, no browser needed)
+# If no subcommand given and built with --features desktop, defaults to `desktop`
 ./target/release/logviewer
 
-# Same as above, explicit:
+# Explicit desktop mode:
+./target/release/logviewer desktop
+
+# Web server (opens browser on http://127.0.0.1:8000)
 ./target/release/logviewer web
 
 # Process a log file with a view (CLI mode, JSON lines output)
@@ -142,16 +145,16 @@ cargo build --release --all-features
 
 ### Build macOS .app bundle
 
-After compiling, create a standalone `.app` bundle:
+Build with desktop support (native window + WebView, no browser needed):
 
 ```bash
-# Build the binary first
-cargo build --release --all-features
+# Build with desktop feature (includes embedded WebView)
+cargo build --release --features desktop
 
 # Create bundle structure
 mkdir -p target/release/LogViewer.app/Contents/{MacOS,Resources}
 
-# Copy binary with a distinct name (lv-core)
+# Copy binary
 cp target/release/logviewer target/release/LogViewer.app/Contents/MacOS/lv-core
 
 # Create Info.plist
@@ -178,8 +181,6 @@ cat > target/release/LogViewer.app/Contents/Info.plist <<'EOF'
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>LSUIElement</key>
     <true/>
 </dict>
 </plist>

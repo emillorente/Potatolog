@@ -18,14 +18,23 @@ pub struct FilteredLogIterator {
 
 impl FilterInner {
     fn set_variable(&mut self, record: &mut Record, key: String, value: String) {
-        record.variables.insert(key.clone(), value.clone());
+        if let Some(existing) = record.variables.iter_mut().find(|(k, _)| *k == key) {
+            existing.1 = value.clone();
+        } else {
+            record.variables.push((key.clone(), value.clone()));
+        }
         self.variables_last.insert(key, value);
     }
 
     fn evaluate(&self, expression: &Expression, record: &Record) -> String {
         match expression {
             Expression::Record => record.text.to_owned(),
-            Expression::Var(name) => record.variables.get(name).cloned().unwrap_or_default(),
+            Expression::Var(name) => record
+                .variables
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default(),
             Expression::LastVarValue(name) => self.variables_last.get(name).cloned().unwrap_or_default(),
             Expression::Constant(value) => value.clone(),
         }
