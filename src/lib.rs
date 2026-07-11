@@ -7,9 +7,6 @@ pub mod query;
 pub mod readers;
 #[cfg(feature = "web")]
 pub mod web;
-#[cfg(feature = "desktop")]
-pub mod desktop;
-
 #[cfg(test)]
 mod tests;
 
@@ -39,7 +36,7 @@ pub struct Record {
 }
 
 impl Record {
-    fn new(text: String) -> Record {
+    pub fn new(text: String) -> Record {
         Record {
             text,
             variables: Vec::new(),

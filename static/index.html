@@ -115,28 +115,7 @@
     font-size: 13px; font-weight: 700;
     color: var(--text-primary); letter-spacing: 0.3px;
   }
-  .search-wrap {
-    flex: 1; position: relative; max-width: 360px;
-  }
-  .search-wrap svg {
-    position: absolute; left: 9px; top: 50%;
-    transform: translateY(-50%);
-    width: 12px; height: 12px; color: var(--text-muted);
-    pointer-events: none;
-  }
-  .search-wrap input {
-    width: 100%;
-    padding: 5px 9px 5px 28px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-  .search-wrap input::placeholder { color: var(--text-muted); }
+
   .upload-btn {
     position: relative;
     flex-shrink: 0;
@@ -311,7 +290,6 @@
   }
   @media (max-width: 640px) {
     header { padding: 8px 12px; gap: 6px; }
-    .search-wrap { max-width: none; order: 10; width: 100%; }
     .stats { margin-left: 0; }
     thead .h-row th:first-child, tbody tr td:first-child,
     thead .f-row th:first-child { padding-left: 12px; }
@@ -340,6 +318,10 @@
   .sql-modal .modal-box { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; max-width: 90vw; max-height: 85vh; width: 900px; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,0.45); }
   .sql-modal .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
   .sql-modal .modal-header h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-primary); font-family: 'Plus Jakarta Sans', sans-serif; }
+  .sql-modal .modal-actions { display: flex; align-items: center; gap: 8px; }
+  .sql-modal .modal-copy { background: var(--btn-bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-size: 11px; padding: 3px 8px; font-family: 'Plus Jakarta Sans', sans-serif; white-space: nowrap; }
+  .sql-modal .modal-copy:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .sql-modal .modal-copy.copied { border-color: var(--accent); color: var(--accent); }
   .sql-modal .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; padding: 0 4px; line-height: 1; }
   .sql-modal .modal-close:hover { color: var(--text-primary); }
   .sql-modal .modal-body { padding: 16px; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; background: var(--bg-elevated); }
@@ -393,10 +375,6 @@
     <div class="brand-icon">L</div>
     <h1>LogViewer</h1>
   </div>
-  <div class="search-wrap">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-    <input type="text" id="search" placeholder="Search all..." autofocus>
-  </div>
   <div class="upload-btn">
 
     <input type="file" id="file-input" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0">
@@ -414,7 +392,10 @@
   <div class="modal-box">
     <div class="modal-header">
       <h3 id="sqlModalTitle">SQL Query</h3>
-      <button class="modal-close" id="sqlModalClose">&times;</button>
+      <div class="modal-actions">
+        <button class="modal-copy" id="sqlModalCopy">📋 Copy</button>
+        <button class="modal-close" id="sqlModalClose">&times;</button>
+      </div>
     </div>
     <div class="modal-body" id="sqlModalBody"></div>
   </div>
@@ -448,11 +429,10 @@ const OP_COLORS = {
 let allRecords = [], currentFile = '', allTotal = 0, pageSkip = 0, pageLimit = 2000;
 let colVisibilityCache = { file: '', empty: null };
 const container = document.getElementById('log-container');
-const searchInput = document.getElementById('search');
 const countEl = document.getElementById('count');
 const totalEl = document.getElementById('total');
 
-const colFilters = { level: '', dateFrom: '', dateTo: '', comp: '', proc: '', thread: '', user: new Set(), msg: '', source: '', line: '', sourceC: '', lineC: '', hideTriggers: false };
+const colFilters = { level: '', dateFrom: '', dateTo: '', comp: '', proc: '', thread: '', user: new Set(), msg: '', source: '', line: '', sourceC: '', lineC: '', showTriggers: false };
 
 const STORAGE_KEY = 'lv_colwidths';
 const COL_KEYS = ['bar', 'level', 'ts', 'comp', 'proc', 'thread', 'user', 'msg', 'source', 'line', 'sourceC', 'lineC'];
@@ -472,7 +452,7 @@ loadWidths();
 
 const resizeState = { col: null, startX: 0, startW: 0 };
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function buildUserDropdown() {
   const users = new Set();
@@ -590,9 +570,16 @@ function formatXmlHtml(xml) {
 
 const sqlModal = document.getElementById('sqlModal');
 const sqlModalBody = document.getElementById('sqlModalBody');
-document.getElementById('sqlModalClose').addEventListener('click', () => { sqlModal.classList.remove('open'); sqlModalBody.className = 'modal-body'; });
-sqlModal.addEventListener('click', (e) => { if (e.target === sqlModal) { sqlModal.classList.remove('open'); sqlModalBody.className = 'modal-body'; } });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sqlModal.classList.contains('open')) { sqlModal.classList.remove('open'); sqlModalBody.className = 'modal-body'; } });
+function closeModal() {
+  sqlModal.classList.remove('open');
+  sqlModalBody.className = 'modal-body';
+  const btn = document.getElementById('sqlModalCopy');
+  btn.textContent = '📋 Copy';
+  btn.classList.remove('copied');
+}
+document.getElementById('sqlModalClose').addEventListener('click', closeModal);
+sqlModal.addEventListener('click', (e) => { if (e.target === sqlModal) closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sqlModal.classList.contains('open')) closeModal(); });
 
 function detectSqlOp(sql) {
   const s = sql.trimStart().toUpperCase();
@@ -611,15 +598,31 @@ function detectSqlOp(sql) {
   return '';
 }
 
+let copyText = '';
+
 function openSqlModal(msg, opClass) {
   const isReu = currentFile && currentFile.toLowerCase().includes('reu');
-  const isXml = !isReu && /^\s*</.test(msg) && msg.includes('>') && (/<\//.test(msg) || /\/\s*>/.test(msg));
-  document.getElementById('sqlModalTitle').textContent = isReu ? 'SQL Query' : isXml ? 'XML' : 'Mensaje completo';
-  const op = opClass || (isReu ? detectSqlOp(msg) : '');
+  const isXml = /^\s*</.test(msg) && msg.includes('>') && (/<\//.test(msg) || /\/\s*>/.test(msg));
+  const isSql = isReu || /^\s*(SELECT|WITH|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|MERGE|EXEC|EXECUTE|CALL|DECLARE|BEGIN|COMMIT)\b/i.test(msg);
+  let title;
+  if (isReu || isSql) { title = 'SQL Query'; copyText = formatSql(msg); }
+  else if (isXml) { title = 'XML'; copyText = formatXml(msg); }
+  else { title = 'Mensaje completo'; copyText = msg; }
+  document.getElementById('sqlModalTitle').textContent = title;
+  const op = opClass || (isSql ? detectSqlOp(msg) : '');
   sqlModalBody.className = 'modal-body' + (op ? ' op-' + op : '');
-  sqlModalBody.innerHTML = isReu ? formatSqlHtml(msg, op) : isXml ? formatXmlHtml(msg) : esc(msg);
+  sqlModalBody.innerHTML = isSql ? formatSqlHtml(msg, op) : isXml ? formatXmlHtml(msg) : esc(msg);
   sqlModal.classList.add('open');
 }
+
+document.getElementById('sqlModalCopy').addEventListener('click', () => {
+  navigator.clipboard.writeText(copyText).then(() => {
+    const btn = document.getElementById('sqlModalCopy');
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '📋 Copy'; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => {});
+});
 
 function colStyle(key) {
   const w = colWidths[key];
@@ -694,7 +697,8 @@ function getFiltered() {
 }
 
 function renderRows(records) {
-  let rows = '';
+  const parts = new Array(records.length * 14);
+  let idx = 0;
   for (const rec of records) {
     const color = rec.c;
     let barColor = 'transparent', dotColor = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#8b949e', badgeText = '';
@@ -720,22 +724,22 @@ function renderRows(records) {
     const fnShort = source.split('\\').pop().split('/').pop();
     const scShort = sourceC.split('\\').pop().split('/').pop();
 
-    rows += '<tr>';
-    rows += '<td><span class="bar" style="background:' + barColor + ';' + (barColor!=='transparent'?'box-shadow:0 0 6px '+barColor+'55':'') + '"></span></td>';
-    rows += '<td>' + (badgeText ? '<span class="badge" style="background:'+dotColor+'18;color:'+dotColor+'">' + badgeText + '</span>' : '') + '</td>';
-    rows += '<td>' + ts + '</td>';
-    rows += '<td>' + comp + '</td>';
-    rows += '<td>' + proc + '</td>';
-    rows += '<td>' + thread + '</td>';
-    rows += '<td>' + user + '</td>';
-    rows += '<td class="msg-cell">' + opBar + mShort + '</td>';
-    rows += '<td title="' + esc(source) + '">' + fnShort + '</td>';
-    rows += '<td>' + line + '</td>';
-    rows += '<td title="' + esc(sourceC) + '">' + scShort + '</td>';
-    rows += '<td>' + lineC + '</td>';
-    rows += '</tr>';
+    parts[idx++] = '<tr>';
+    parts[idx++] = '<td><span class="bar" style="background:' + barColor + ';' + (barColor!=='transparent'?'box-shadow:0 0 6px '+barColor+'55':'') + '"></span></td>';
+    parts[idx++] = '<td>' + (badgeText ? '<span class="badge" style="background:'+dotColor+'18;color:'+dotColor+'">' + badgeText + '</span>' : '') + '</td>';
+    parts[idx++] = '<td>' + ts + '</td>';
+    parts[idx++] = '<td>' + comp + '</td>';
+    parts[idx++] = '<td>' + proc + '</td>';
+    parts[idx++] = '<td>' + thread + '</td>';
+    parts[idx++] = '<td>' + user + '</td>';
+    parts[idx++] = '<td class="msg-cell">' + opBar + mShort + '</td>';
+    parts[idx++] = '<td title="' + esc(source) + '">' + fnShort + '</td>';
+    parts[idx++] = '<td>' + line + '</td>';
+    parts[idx++] = '<td title="' + esc(sourceC) + '">' + scShort + '</td>';
+    parts[idx++] = '<td>' + lineC + '</td>';
+    parts[idx++] = '</tr>';
   }
-  return rows;
+  return parts.join('');
 }
 
 function buildPagin() {
@@ -748,7 +752,85 @@ function buildPagin() {
     '</div>';
 }
 
-const debouncedFetch = debounce(fetchPage, 150);
+const debouncedFetch = debounce(function() {
+  pageSkip = 0;
+  fetchPage();
+}, 400);
+
+// Delegated events — siempre activos, no importa si la tabla se recrea
+container.addEventListener('input', (e) => {
+  const inp = e.target.closest('.col-filter');
+  if (!inp) return;
+  pageSkip = 0;
+  const id = inp.id;
+  if (id === 'flevel') colFilters.level = inp.value;
+  else if (id === 'fdateFrom') colFilters.dateFrom = inp.value;
+  else if (id === 'fdateTo') colFilters.dateTo = inp.value;
+  else if (id === 'fcomp') colFilters.comp = inp.value;
+  else if (id === 'fproc') colFilters.proc = inp.value;
+  else if (id === 'fthread') colFilters.thread = inp.value;
+  else if (id === 'fmsg') colFilters.msg = inp.value;
+  else if (id === 'fsource') colFilters.source = inp.value;
+  else if (id === 'fline') colFilters.line = inp.value;
+  else if (id === 'fsourceC') colFilters.sourceC = inp.value;
+  else if (id === 'flineC') colFilters.lineC = inp.value;
+  debouncedFetch();
+});
+
+container.addEventListener('click', (e) => {
+  // User dropdown toggle
+  const ddBtn = e.target.closest('.user-dropbtn');
+  if (ddBtn) {
+    e.stopPropagation();
+    const dd = ddBtn.closest('.user-dropdown');
+    if (!dd) return;
+    const open = dd.classList.toggle('open');
+    if (open) {
+      const r = ddBtn.getBoundingClientRect();
+      const content = dd.querySelector('.user-dropdown-content');
+      if (content) { content.style.left = r.left + 'px'; content.style.top = (r.bottom + 4) + 'px'; }
+    }
+    return;
+  }
+  // Row toggles
+  const row = e.target.closest('tbody tr');
+  if (!row) return;
+  const msgCell = e.target.closest('.msg-cell');
+  if (msgCell) {
+    const idx = row.dataset.idx;
+    if (idx !== undefined) {
+      const record = allRecords[parseInt(idx)];
+      if (record) openSqlModal(((record.v||{}).message||''), record.op);
+    }
+    return;
+  }
+  row.classList.toggle('expanded');
+});
+
+// Trigger toggle (está fuera de #log-container, necesita listener directo)
+document.getElementById('fhideTriggers').addEventListener('change', (e) => {
+  colFilters.showTriggers = e.target.checked;
+  pageSkip = 0;
+  fetchPage();
+});
+
+container.addEventListener('change', (e) => {
+  // User dropdown checkboxes
+  const cb = e.target.closest('.user-opt input');
+  if (cb) {
+    pageSkip = 0;
+    const u = cb.dataset.user;
+    if (u === '__all__') { colFilters.user.clear(); }
+    else {
+      if (cb.checked) colFilters.user.add(u);
+      else colFilters.user.delete(u);
+      const allCb = container.querySelector('[data-user="__all__"]');
+      if (allCb) allCb.checked = colFilters.user.size === 0;
+    }
+    fetchPage();
+    return;
+  }
+});
 
 function doRenderAll() {
   const filtered = getFiltered();
@@ -764,104 +846,38 @@ function doRenderAll() {
     return;
   }
 
-  container.innerHTML = '<table>' + colgroup + '<thead>' +
-    '<tr class="h-row"><th></th><th>VM</th><th>Fecha</th><th>Objeto</th><th>Procedimiento</th><th>Thr</th><th>Usuario</th><th>Texto</th><th>Fuente</th><th>L&iacute;nea</th><th>Fuente C</th><th>L&iacute;nea C</th></tr>' +
-    '<tr class="f-row">' +
-      '<th></th>' +
-      '<th><input class="col-filter" id="flevel" placeholder="vm..." value="' + esc(colFilters.level) + '"></th>' +
-      '<th><div class="date-range"><input type="datetime-local" id="fdateFrom" value="' + esc(colFilters.dateFrom) + '"><input type="datetime-local" id="fdateTo" value="' + esc(colFilters.dateTo) + '"></div></th>' +
-      '<th><input class="col-filter" id="fcomp" placeholder="obj..." value="' + esc(colFilters.comp) + '"></th>' +
-      '<th><input class="col-filter" id="fproc" placeholder="proc..." value="' + esc(colFilters.proc) + '"></th>' +
-      '<th><input class="col-filter" id="fthread" placeholder="thr..." value="' + esc(colFilters.thread) + '"></th>' +
-      '<th>' + buildUserDropdown() + '</th>' +
-      '<th><input class="col-filter" id="fmsg" placeholder="texto..." value="' + esc(colFilters.msg) + '"></th>' +
-      '<th><input class="col-filter" id="fsource" placeholder="src..." value="' + esc(colFilters.source) + '"></th>' +
-      '<th><input class="col-filter" id="fline" placeholder="ln..." value="' + esc(colFilters.line) + '"></th>' +
-      '<th><input class="col-filter" id="fsourceC" placeholder=".cpp..." value="' + esc(colFilters.sourceC) + '"></th>' +
-      '<th><input class="col-filter" id="flineC" placeholder="ln..." value="' + esc(colFilters.lineC) + '"></th>' +
-    '</tr>' +
-    '</thead><tbody>' + renderRows(filtered) + '</tbody></table>';
+  const existingTbl = container.querySelector('table');
+  if (existingTbl) {
+    existingTbl.querySelector('tbody').innerHTML = renderRows(filtered);
+    existingTbl.querySelector('colgroup').innerHTML = COL_KEYS.map(k => '<col style="' + colStyle(k) + '">').join('');
+  } else {
+    container.innerHTML = '<table>' + colgroup + '<thead>' +
+      '<tr class="h-row"><th></th><th>VM</th><th>Fecha</th><th>Objeto</th><th>Procedimiento</th><th>Thr</th><th>Usuario</th><th>Texto</th><th>Fuente</th><th>L&iacute;nea</th><th>Fuente C</th><th>L&iacute;nea C</th></tr>' +
+      '<tr class="f-row">' +
+        '<th></th>' +
+        '<th><input class="col-filter" id="flevel" placeholder="vm..." value="' + esc(colFilters.level) + '"></th>' +
+        '<th><div class="date-range"><input type="datetime-local" id="fdateFrom" value="' + esc(colFilters.dateFrom) + '"><input type="datetime-local" id="fdateTo" value="' + esc(colFilters.dateTo) + '"></div></th>' +
+        '<th><input class="col-filter" id="fcomp" placeholder="obj..." value="' + esc(colFilters.comp) + '"></th>' +
+        '<th><input class="col-filter" id="fproc" placeholder="proc..." value="' + esc(colFilters.proc) + '"></th>' +
+        '<th><input class="col-filter" id="fthread" placeholder="thr..." value="' + esc(colFilters.thread) + '"></th>' +
+        '<th>' + buildUserDropdown() + '</th>' +
+        '<th><input class="col-filter" id="fmsg" placeholder="texto..." value="' + esc(colFilters.msg) + '"></th>' +
+        '<th><input class="col-filter" id="fsource" placeholder="src..." value="' + esc(colFilters.source) + '"></th>' +
+        '<th><input class="col-filter" id="fline" placeholder="ln..." value="' + esc(colFilters.line) + '"></th>' +
+        '<th><input class="col-filter" id="fsourceC" placeholder=".cpp..." value="' + esc(colFilters.sourceC) + '"></th>' +
+        '<th><input class="col-filter" id="flineC" placeholder="ln..." value="' + esc(colFilters.lineC) + '"></th>' +
+      '</tr>' +
+      '</thead><tbody>' + renderRows(filtered) + '</tbody></table>';
+    const tbl = container.querySelector('table');
+    if (tbl) buildResizeHandlers(tbl);
+  }
+
+  // Attach data-idx to each row
+  const tbody = container.querySelector('tbody');
+  const rows = tbody.querySelectorAll('tr');
+  for (let i = 0; i < rows.length; i++) rows[i].dataset.idx = String(i);
 
   document.getElementById('paginator').innerHTML = buildPagin();
-
-  countEl.textContent = filtered.length;
-  totalEl.textContent = allTotal;
-
-  const tbl = container.querySelector('table');
-  if (tbl) buildResizeHandlers(tbl);
-
-  container.querySelectorAll('tbody tr').forEach(el => {
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.msg-cell')) return;
-      el.classList.toggle('expanded');
-    });
-  });
-
-  const msgCells = container.querySelectorAll('.msg-cell');
-  for (let i = 0; i < msgCells.length; i++) {
-    msgCells[i].addEventListener('click', (e) => {
-      e.stopPropagation();
-      const record = filtered[i];
-      if (record) openSqlModal(((record.v||{}).message||''), record.op);
-    });
-  }
-
-  document.querySelectorAll('.col-filter').forEach(inp => {
-    inp.addEventListener('input', () => {
-      const id = inp.id;
-      if (id === 'flevel') colFilters.level = inp.value;
-      else if (id === 'fdateFrom') colFilters.dateFrom = inp.value;
-      else if (id === 'fdateTo') colFilters.dateTo = inp.value;
-      else if (id === 'fcomp') colFilters.comp = inp.value;
-      else if (id === 'fproc') colFilters.proc = inp.value;
-      else if (id === 'fthread') colFilters.thread = inp.value;
-      else if (id === 'fmsg') colFilters.msg = inp.value;
-      else if (id === 'fsource') colFilters.source = inp.value;
-      else if (id === 'fline') colFilters.line = inp.value;
-      else if (id === 'fsourceC') colFilters.sourceC = inp.value;
-      else if (id === 'flineC') colFilters.lineC = inp.value;
-      debouncedFetch();
-    });
-  });
-
-  document.getElementById('fhideTriggers')?.addEventListener('change', (e) => {
-    colFilters.hideTriggers = e.target.checked;
-    fetchPage();
-  });
-
-  const userDD = document.getElementById('user-filter');
-  if (userDD) {
-    const btn = userDD.querySelector('.user-dropbtn');
-    const content = userDD.querySelector('.user-dropdown-content');
-    if (btn && content) {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const open = userDD.classList.toggle('open');
-        if (open) {
-          const r = btn.getBoundingClientRect();
-          content.style.left = r.left + 'px';
-          content.style.top = (r.bottom + 4) + 'px';
-          content.style.width = '';
-          content.style.minWidth = '';
-        }
-      });
-    }
-    userDD.querySelectorAll('.user-opt input').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const u = cb.dataset.user;
-        if (u === '__all__') {
-          colFilters.user.clear();
-        } else {
-          if (cb.checked) colFilters.user.add(u);
-          else colFilters.user.delete(u);
-          // uncheck "All" when any individual is toggled
-          const allCb = userDD.querySelector('[data-user="__all__"]');
-          if (allCb) allCb.checked = colFilters.user.size === 0;
-        }
-        fetchPage();
-      });
-    });
-  }
 
   document.getElementById('pgPrev')?.addEventListener('click', () => {
     if (pageSkip > 0) { pageSkip = Math.max(0, pageSkip - pageLimit); fetchPage(); }
@@ -869,6 +885,11 @@ function doRenderAll() {
   document.getElementById('pgNext')?.addEventListener('click', () => {
     if (pageSkip + pageLimit < allTotal) { pageSkip += pageLimit; fetchPage(); }
   });
+
+  countEl.textContent = filtered.length;
+  totalEl.textContent = allTotal;
+
+  container.scrollTop = 0;
 }
 
 async function fetchPage(forceRefresh) {
@@ -893,9 +914,7 @@ async function fetchPage(forceRefresh) {
   if (colFilters.lineC) params.set('lineC', colFilters.lineC);
   if (colFilters.dateFrom) params.set('dateFrom', colFilters.dateFrom);
   if (colFilters.dateTo) params.set('dateTo', colFilters.dateTo);
-  if (colFilters.hideTriggers) params.set('hideTriggers', 'true');
-  const q = searchInput.value.trim();
-  if (q) params.set('q', q);
+  if (colFilters.showTriggers) params.set('showTriggers', 'true');
   try {
     const data = await apiQuery(params);
     allRecords = data.r || [];
@@ -940,8 +959,6 @@ function applyColVisibility(empty) {
   el.textContent = sels.join(',') + '{display:none}';
 }
 
-searchInput.addEventListener('input', debouncedFetch);
-
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
@@ -972,7 +989,7 @@ async function resetAndLoadFile(path) {
   colFilters.level = ''; colFilters.comp = ''; colFilters.proc = ''; colFilters.thread = '';
   colFilters.user = new Set(); colFilters.msg = '';
   colFilters.source = ''; colFilters.line = ''; colFilters.sourceC = ''; colFilters.lineC = '';
-  colFilters.hideTriggers = false;
+  colFilters.showTriggers = false;
   await fetchPage();
 }
 

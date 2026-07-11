@@ -6,277 +6,195 @@
 - Columns resizable via drag handles, widths persist in localStorage.
 - Dark + light theme toggle (icons show target: ☀ in dark, ☾ in light), persisted in localStorage.
 - Filters: text inputs for most columns, multi-select dropdown for Usuario, date range pickers (from/to) for Fecha. All applied server-side.
-- Global search across all fields combined with AND; column filters combine with AND.
-- Pagination with Prev/Next, 2000 records per page, server-side.
+- Column filters combine with AND. Pagination with Prev/Next, 2000 records per page, server-side.
 - Server returns only a page of records, not the full file.
 - User filter dropdown must be left-aligned and full column width.
 - Must auto-detect CORE.OUT format (tilde-delimited) and reu.out format (SQL trace with CONTEXT headers).
 - Must auto-select the correct view file based on filename (view_core.json for .OUT, view_reu.json for reu).
 - No pre-loaded files — app starts empty, only loads via "Open file…" upload button.
-- Trigger toggle (`☐ triggers`) in toolbar to hide records whose Objeto starts with `TRIGGER`; persists across file switches.
+- Trigger toggle (`☐ triggers`) in toolbar: unchecked → triggers ocultos, checked → triggers visibles. Persiste al cambiar de archivo.
 - XML detection in CORE.OUT messages: if text starts with `<` and contains `>` and either `</` or `/>`, format as XML in modal with syntax highlighting.
-- SQL operation detection in reu: first keyword (SELECT, INSERT, etc.) detected, colored bar shown in Texto column, border + colored keyword in modal.
+- SQL operation detection (any file): first keyword (SELECT, INSERT, etc.) detected, colored bar shown in Texto column, border + colored keyword in modal. Botón "📋 Copy" en modal para copiar texto formateado.
 
 ## Done
+
 ### UI / Frontend
-- Replaced user pill toggles with a multi-select dropdown (checkboxes, full-width button, fixed positioning to avoid clipping).
-- Replaced Hoa text filter with two `<input type="date">` (Desde / Hasta) for date range filtering.
-- Added dark/light theme toggle (☀ in dark, ☾ in light) with CSS variables and localStorage persistence.
-- Theme toggle icons represent the target state (click ☀ to go light).
-- Added `formatSql()` / `formatSqlHtml()` for basic SQL syntax highlighting with line-break formatting.
-- Added `formatXml()` / `formatXmlHtml()` for XML pretty-printing with syntax highlighting (tags, attributes, values, processing instructions, inline for text-only elements).
-- Added click-to-expand modal for Texto column: shows full formatted SQL/XML, dynamic title, closable via ×/Escape/click-outside.
-- Added `updateColVisibility()` that hides columns whose variable field is empty across current page.
-- Added SQL operation detection (`detectSqlOp()`) with colored bar (`.op-bar`) in Texto column + colored keyword in modal.
-- Added trigger filter checkbox (`☐ triggers`) in toolbar; persists when switching files, resets on new upload.
-- Replaced overlay-based file input with explicit `<button>` that triggers hidden `<input type="file">` via JS.
-- Removed file-picker dropdown; app starts empty, no default file auto-loading.
-- Added loading spinner (centered, animated ring) during upload and query fetches.
-- Old data cleared immediately when starting a new upload.
+- Multi-select dropdown para Usuario (checkboxes, full-width button, fixed positioning para evitar clipping).
+- Date range pickers (`datetime-local`) para Fecha (Desde / Hasta), server-side.
+- Dark/light theme toggle (☀ en dark, ☾ en light) con CSS variables y localStorage.
+- `formatSql()` / `formatSqlHtml()` para SQL syntax highlighting con saltos de línea.
+- `formatXml()` / `formatXmlHtml()` para XML pretty-printing (tags, attributes, values, PI, inline elements).
+- Modal click-to-expand para Texto column: SQL/XML/plain text, título dinámico, cierre con ×/Escape/click-outside.
+- Botón "📋 Copy" en modal (copia texto formateado al portapapeles, feedback "✓ Copied" 2s).
+- `updateColVisibility()`: oculta columnas cuyo campo está vacío en la página actual.
+- SQL op detection con barra coloreada (`.op-bar`) en Texto column + keyword coloreada en modal.
+- Trigger checkbox (`☐ triggers`): unchecked → triggers ocultos, checked → visibles. Persiste entre archivos.
+- Botón "Open file…" que activa `<input type="file">` oculto via JS.
+- App starts empty, no pre-loaded files, no file-picker dropdown.
+- Loading spinner (anillo centrado, animado) durante upload y queries.
+- Old data se limpia inmediatamente al empezar un nuevo upload.
+- Event delegation: un solo listener en `container` para clicks/input/change, sin listeners por fila.
+- Solo rebuild tbody: cuando la tabla existe, solo reemplaza `tbody.innerHTML`, no destruye/crea la tabla.
+- `renderRows` con array pre-dimensionado + `join('')` en vez de concatenación de strings.
+- `esc()` con regex (`replace(/&/g,'&amp;')...`) en vez de crear/leer elementos DOM.
+- Debounce 400ms en filtros de columna (evita request por tecla).
+- `container.scrollTop = 0` al renderizar (evita espacio en blanco post-búsqueda).
+- Sin "Search all" global (eliminado por problemas de scroll y UI).
 
 ### Backend / Rust
-- Created `LogCoreReader` in readers.rs: byte-by-byte state machine that reads `~@_~`-delimited records (handles multi-line XML messages spanning many physical lines in CORE.OUT).
-- Created `LogQueryReader` in readers.rs that merges SQL trace header + SQL text into one record.
-- Created `view_reu.json` regex for CONTEXT fields (timing, level, component, proc, timestamp, source, line) + SQL query as message.
-- Added `detect_reader()` that reads first 512 bytes and returns `LogCoreReader` (if `~@_~` detected), `LogQueryReader` (if starts with `/***`), or `LogFile` (fallback line-by-line).
-- Changed `process()` from generic `R: LogReader` to `Box<dyn LogReader>` for dynamic dispatch.
-- View auto-detection per-request in `handle_query`/`handle_upload` via `view_for_file()` (filename-based).
-- Upload handler returns only `{ path }` (no record counting); total is computed on first server-side query.
-- Query handler applies all filters server-side: column filters (case-insensitive substring), date range (ISO datetime), global search (space-separated AND), trigger filter.
-- `date_str_to_iso()` converts datetime strings from both formats (`dd/MM/yy HH:mm:ss,fff` for CORE.OUT, `yy/MM/dd HH:mm:ss` for reu.out) to ISO 8601.
-- Date/time filter uses `<input type="datetime-local">` for hour-level precision; `dateTo` normalized to end-of-minute (`:59`).
-- In-memory record cache (`Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>`): first query loads file into RAM with pre-computed ISO timestamps; subsequent queries use `Arc` (no clone) + rayon parallel filtering (<30ms).
-- `CachedDataSet` stores records + pre-computed ISO timestamps; empty-timestamp records partitioned to end.
-- Query handler uses rayon `par_iter()` for parallel CPU-bound filtering across all cores.
-- `Arc<CachedDataSet>` avoids cloning 382K records per query (10x speedup: 0.35s → 0.03s).
-- Upload handler returns only `{ path }` (no record counting); cleanup after 3600s.
-- Query handler returns simplified JSON: `r[]` with `v` (variables), `c` (color), `op` (SQL op class), `tr` (is_trigger).
-- `detect_op_class()` detects SQL operation from first keyword (SELECT, INSERT, etc.) server-side.
-- Global search haystack simplified to `text + message + component` (dropped all-vars map).
-- Date filter uses pre-computed ISO dates; `dateFrom` breaks loop early when records become too old.
+- `LogCoreReader`: state machine que lee registros delimitados por `~@_~` (soporta XML multi-línea).
+- `LogQueryReader`: mergea header CONTEXT + SQL text en un solo registro.
+- `view_reu.json`: regex para campos CONTEXT (timing, level, component, proc, timestamp, source, line) + SQL query.
+- `detect_reader()`: lee primeros 512 bytes y retorna `LogCoreReader` (si `~@_~`), `LogQueryReader` (si empieza con `/***`), o `LogFile` (line-by-line).
+- `process()` con `Box<dyn LogReader>` para dispatch dinámico.
+- View auto-detection por filename (`view_for_file()`).
+- Upload handler: solo `{ path }` (sin conteo); cleanup tras 3600s.
+- Query handler: filtros server-side (case-insensitive substring), date range (ISO datetime), trigger filter.
+- `date_str_to_iso()`: convierte `dd/MM/yy` y `yy/MM/dd` a ISO 8601.
+- Date filter con `datetime-local`; `dateTo` normalizado a `:59`.
+- Cache: `Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>`, primer query carga archivo a RAM, queries siguientes usan `Arc` + rayon parallel filtering (<30ms).
+- `CachedDataSet`: records + ISO timestamps pre-computados; empty-timestamp records al final.
+- `record_to_json()`: single-pass field extraction en vez de 11 llamadas `rec.get()`.
+- `detect_op_class()`: SQL op por primer keyword (SELECT, INSERT, etc.) server-side, sin allocs.
+- JSON response: `{ r: [{ v: {fields...}, c: color, op: opClass, tr: isTrigger }], t: total }`.
+
+### Optimizations (Fase 1 — I/O + CPU)
+- **Batch I/O en LogCoreReader**: `fill_buf()`/`consume()` + `String::with_capacity(512)` — elimina ~156M llamadas `read()` byte-a-byte (`readers.rs:81-117`).
+- **Filtros sin heap allocations**: pre-cálculo lowercase fuera del loop + `to_ascii_lowercase()` + `eq_ignore_ascii_case()` en bytes — elimina ~7.6M `to_lowercase()` allocs por query (`query.rs:166-174, 247-270`).
+- **`evaluate()` con `Cow<str>`**: evita clonar `Record.text` en `If`/`Match`/`Set` (`process.rs:29-41`).
+- **`match_string()` retorna `Vec<(String,String)>`**: elimina HashMap (~382K allocs menos) (`filters.rs:120-136`).
+- **`spawn_blocking`**: `handle_query` en thread pool separado, no bloquea tokio (`web.rs:110-118`).
+
+### Optimizations (Fase 2 — Memoria + Frontend)
+- **Eliminado `search_texts` (~248 MB)**: `rec.text.to_ascii_lowercase()` computado on-demand durante búsqueda (`query.rs:334-337`).
+- **Lazy `text_lower`**: eliminado campo `text_lower` de `Record` (~157 MB ahorrados) (`lib.rs:32-36`).
+- **Single-pass field extraction**: `record_matches` extrae campos en un loop O(12) en vez de 11 `rec.get()` O(12) (`query.rs:266-282`).
+- **Binary search para date break**: O(log n) en vez de O(n) (`query.rs:145-158`).
+- **Carga fuera del write lock**: `load_records()` sin lock; solo `insert()` adquiere write lock (`query.rs:368-381`).
+- **`detect_op_class()` sin alloc**: `eq_ignore_ascii_case()` en slices de bytes (`query.rs:468-491`).
+- **`matches_user_filter()` sin alloc**: comparación byte a byte con `eq_ignore_ascii_case()` (`query.rs:462-466`).
+- **`date_str_to_iso()` sin Vec**: parseo directo con `find()` + `split()` (`query.rs:490-511`).
+- **Frontend**: `esc()` con regex, array+join en `renderRows`, solo rebuild tbody, event delegation, debounce 400ms.
+
+### Dependency upgrades
+- `tokio` 0.2 → 1.x, `warp` 0.2 → 0.4, `bytes` 0.5 → 1, `clap` 2.33 → 4.
+- Eliminados `wry`/`tao` del root crate (solo Tauri los usa).
+- Creado workspace `Cargo.toml` raíz con `members = ["src-tauri"]`.
+- `src-tauri/Cargo.toml`: Tauri 2.11, tauri-build 2.6.
 
 ### Code Quality
-- Added `#![warn(clippy::all)]` to lib.rs.
-- Changed edition from 2018 to 2021 in Cargo.toml.
-- Made reader fields (`file`, `pos`) private in `LogFile`, `LogCoreReader`, `LogQueryReader`.
-- Merged `read_line_trim` into same impl block as `open` in `LogQueryReader`.
-- `detect_reader` propagates errors with `?` (removed `unwrap_or(0)`).
-- Renamed `next_triable` → `try_next` in `FilteredLogIterator`.
-- Changed `&Vec<Operation>` → `&[Operation]` in `print_if_branch`.
-- Implemented `Display` for `Expression`.
-- Removed unused `base_dir` field from `AppState` and `--dir` CLI arg.
-- Removed dead `QueryResult` struct and `serde_derive::Serialize` import.
-- Removed unused `matchesColumnFilters()` and `dateToIso()` JS functions.
-- Removed unused `loadRecords()` replaced by `fetchPage()`.
-- Upload handler no longer counts all records (saves ~6s on CORE.OUT).
-
-## In Progress
-- (none)
-
-## Blocked
-- (none)
+- `#![warn(clippy::all)]` en lib.rs.
+- Edition 2018 → 2021.
+- Reader fields (`file`, `pos`) privados.
+- `detect_reader` propaga errores con `?`.
+- Renamed `next_triable` → `try_next`.
+- `&Vec<Operation>` → `&[Operation]`.
+- `Display` impl para `Expression`.
+- Eliminado `desktop` feature + `src/desktop.rs` (código muerto, Tauri lo reemplaza).
+- Eliminados: `base_dir`, `QueryResult`, `matchesColumnFilters()`, `dateToIso()`, `loadRecords()`.
 
 ## Key Decisions
-- Used `position: fixed` + JS-calculated coordinates for the user dropdown to avoid clipping by the scrollable table container.
-- Changed `process()` from generic type to `Box<dyn LogReader>` so `detect_reader()` returns either reader type dynamically.
-- Reader auto-detection based on file content signature (first 512 bytes) rather than filename extension.
-- View file auto-detection based on filename patterns ("reu" → view_reu.json, ".OUT" → view_core.json).
-- Date filter uses ISO date comparison by converting the log's `dd/MM/yy` format to `yyyy-MM-dd`.
-- Theme toggle uses `data-theme` attribute on `<html>` with CSS variables for both themes; icons represent the target.
-- Upload returns only file path (no total) to avoid double-scanning large files.
-- All filtering done server-side; frontend sends filter params to `/api/query`.
-- Pagination is server-side; frontend requests page 0–1999, 2000–3999, etc.
-- 2000 records per page (pageLimit).
-- `setTimeout(20ms)` yield after `showSpinner()` ensures browser paints the spinner before blocking on upload/query.
-- Spinner uses `position: fixed` with `z-index: 9998` (just below modal).
+- `position: fixed` + JS-calculated coordinates para user dropdown (evita clipping del scrollable container).
+- `Box<dyn LogReader>` para dispatch dinámico de readers.
+- Reader auto-detection por content signature (primeros 512 bytes), no por filename.
+- View auto-detection por filename pattern ("reu" → view_reu.json, ".OUT" → view_core.json).
+- Date filter por comparación ISO (conversión de `dd/MM/yy` a `yyyy-MM-dd`).
+- Theme toggle con `data-theme` en `<html>` + CSS variables; iconos representan el target.
+- Upload retorna solo path (sin total) para evitar doble scan.
+- Todo filtering server-side; frontend envía params a `/api/query`.
+- Paginación server-side: skip/limit, 2000 records por página.
+- Event delegation en `container` para `input`, `click`, `change` (no se pierden al recrear tabla).
+- `pageSkip = 0` al cambiar filtros (evita resultados vacíos en páginas > 1).
+- Trigger toggle con listener directo (está fuera de `#log-container`).
+- Sin "Search all" global (eliminado por problemas de UI/scroll).
 
 ## Relevant Files
-- `src/web.rs`: server routes + embedded frontend HTML/CSS/JS (all UI rendering, filter logic, SQL/XML formatting, column visibility, trigger filter, operation detection, spinner).
-- `src/readers.rs`: `LogFile` (line-by-line), `LogQueryReader` (reu multi-line merger), `LogCoreReader` (tilde-delimited for CORE.OUT), `detect_reader()`.
-- `src/process.rs`: `process()` takes `Box<dyn LogReader>`, `FilteredLogIterator`.
-- `src/cli.rs`: CLI entry with per-file view auto-detection.
-- `src/filters.rs`: regex patterns, View/Operation/Condition types, Display impls.
-- `src/tests.rs`: unit tests.
-- `src/lib.rs`: library root, `Record`, `Color` types.
-- `Cargo.toml`: features (cli, web, json, desktop), edition 2021.
-- `view_core.json`: regex view for CORE.OUT (15 `~`-delimited fields, 11 captured).
-- `view_reu.json`: regex view for reu.out (CONTEXT fields + SQL).
-- `examples/CORE.OUT`: ~382K-record delimited log file (156 MB, some records span 22+ lines).
-- `examples/reu.out`: ~3.8K-query SQL trace log file (13 MB).
+- `src/web.rs`: server routes + embedded frontend (warp), `handle_query` con `spawn_blocking`, `handle_upload`.
+- `src/readers.rs`: `LogFile` (line-by-line), `LogQueryReader` (reu multi-line merger), `LogCoreReader` (tilde-delimited, batch I/O), `detect_reader()`.
+- `src/process.rs`: `process()`, `FilteredLogIterator`, `evaluate()` con `Cow<str>`.
+- `src/cli.rs`: CLI entry (process, web subcommands), clap 4.
+- `src/filters.rs`: regex patterns, View/Operation/Condition types, `match_string()` retorna Vec.
+- `src/query.rs`: query engine, `ColumnStore`-like access, `record_matches` single-pass, `record_to_json`, `cached_records`, `date_str_to_iso`, `detect_op_class`.
+- `src/lib.rs`: `Record`, `Color` types, `text_lower` eliminado.
+- `Cargo.toml`: features (cli, web, json), edition 2021, workspace con members = ["src-tauri"].
+- `src-tauri/Cargo.toml`: Tauri 2.11, tokio 1.
+- `src-tauri/tauri.conf.json`: window 1400×900, URL http://127.0.0.1:8731, bundle iconos.
+- `src-tauri/src/lib.rs`: `run()`: tokio runtime + warp server + Tauri window.
+- `view_core.json`: regex CORE.OUT (15 `~`-delimited fields, 11 captured).
+- `view_reu.json`: regex reu.out (CONTEXT fields + SQL).
+- `examples/CORE.OUT`: ~382K-record (156 MB).
+- `examples/reu.out`: ~3.8K-query (13 MB).
 - `AGENTS.md`: this file.
 
 ## Build & Run
 
 ### Prerequisites
-- [Rust](https://rustup.rs/) (stable toolchain)
+- [Rust](https://rustup.rs/) (stable toolchain, MSRV 1.77.2+)
+- [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (macOS: Xcode CLI tools)
 - Git
 
-### Compile locally
+> **Importante**: hay **dos crates** en un workspace. Siempre compilar desde la raíz del proyecto (`/Users/emi/Code/LogViewer`), **no** desde `src-tauri/`. El target dir compartido es `target/`.
+
+### 1. Desktop app — bundle completo (.app + .dmg)
 
 ```bash
-# Clone
-git clone https://github.com/emillorente/LogViewer.git
-cd LogViewer
+cd src-tauri && cargo tauri build --bundles "app,dmg"
 
-# Build release binary (includes both CLI and web server)
-cargo build --release --all-features
-
-# Binary location:
-#   Linux/macOS: target/release/logviewer
-#   Windows:     target\release\logviewer.exe
+# Output:
+#   target/release/bundle/macos/LogViewer.app     ← se conserva
+#   target/release/bundle/dmg/LogViewer_0.1.0_aarch64.dmg
 ```
 
-### Run
+### 2. Desktop app — solo binario (sin bundle)
 
 ```bash
-# Desktop app (native window with WebView, no browser needed)
-# If no subcommand given and built with --features desktop, defaults to `desktop`
-./target/release/logviewer
+cargo build --release -p logviewer-desktop
+# Binary: target/release/logviewer-desktop
+```
 
-# Explicit desktop mode:
-./target/release/logviewer desktop
+### 3. CLI + web server (sin GUI)
 
-# Web server (opens browser on http://127.0.0.1:8000)
+```bash
+cargo build --release
+# Binary: target/release/logviewer
+```
+
+### 4. Tests
+
+```bash
+cargo test
+# 8 tests relevantes pasan; 6 tests de readers fallan por fixtures faltantes (pre-existente)
+```
+
+### 5. Run
+
+```bash
+# Web server (http://127.0.0.1:8000, upload file via UI)
 ./target/release/logviewer web
 
-# Process a log file with a view (CLI mode, JSON lines output)
+# CLI: procesar log con una vista (JSON lines a stdout)
 ./target/release/logviewer process view_core.json examples/CORE.OUT
 ```
 
-### Build macOS .app bundle
-
-Build with desktop support (native window + WebView, no browser needed):
+### Cross-compile para Windows
 
 ```bash
-# Build with desktop feature (includes embedded WebView)
-cargo build --release --features desktop
-
-# Create bundle structure
-mkdir -p target/release/LogViewer.app/Contents/{MacOS,Resources}
-
-# Copy binary
-cp target/release/logviewer target/release/LogViewer.app/Contents/MacOS/lv-core
-
-# Create Info.plist
-cat > target/release/LogViewer.app/Contents/Info.plist <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>lv-core</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.remirampin.logviewer</string>
-    <key>CFBundleName</key>
-    <string>LogViewer</string>
-    <key>CFBundleVersion</key>
-    <string>0.1.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleIconFile</key>
-    <string>logviewer</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>10.15</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-</dict>
-</plist>
-EOF
-
-# (Optional) add a .icns icon to Resources/
-
-# Copy view definition files into the bundle (required for log parsing)
-cp view_core.json view_reu.json target/release/LogViewer.app/Contents/Resources/
-
-# Remove old signature and re-sign (required for macOS to recognize the bundle)
-rm -rf target/release/LogViewer.app/Contents/_CodeSignature
-codesign --force --deep --sign - target/release/LogViewer.app
-```
-
-The binary is automatically ad-hoc signed by the linker (arm64 on Apple Silicon, x86_64 on Intel). Double-click `LogViewer.app` in Finder to launch — it will start the web server (no dock icon, no bouncing) and open your browser automatically.
-
-### Cross-compile for Windows from macOS/Linux
-
-```bash
-# Install Windows target
-rustup target add x86_64-pc-windows-msvc
-
-# Build (requires MSVC linker — use Mingw instead if no MSVC)
-cargo build --release --all-features --target x86_64-pc-windows-msvc
-```
-
-Alternatively, use `x86_64-pc-windows-gnu` (Mingw) which works without Visual Studio:
-
-```bash
+# Mingw
 rustup target add x86_64-pc-windows-gnu
-cargo build --release --all-features --target x86_64-pc-windows-gnu
+cargo build --release --target x86_64-pc-windows-gnu
+
+# MSVC (requiere Visual Studio linker)
+rustup target add x86_64-pc-windows-msvc
+cargo build --release --target x86_64-pc-windows-msvc
 ```
 
-### Run
+### Windows icon
 
+Tauri usa `src-tauri/icons/icon.ico`. Reemplazar ese archivo para personalizar el icono.
+Para regenerar todos los iconos desde `assets/logo.png`:
 ```bash
-# Web server (opens on http://127.0.0.1:8000, no pre-loaded file — upload via UI)
-./target/release/logviewer web
-
-# Process a log file with a view (CLI mode, JSON lines output)
-./target/release/logviewer process view_core.json examples/CORE.OUT
+magick convert assets/logo.png -resize 32x32 -alpha on -define png:color-type=6 src-tauri/icons/32x32.png
+magick convert assets/logo.png -resize 128x128 -alpha on -define png:color-type=6 src-tauri/icons/128x128.png
+magick convert assets/logo.png -resize 256x256 -alpha on -define png:color-type=6 src-tauri/icons/128x128@2x.png
+magick convert assets/logo.png \( -clone 0 -resize 16x16 \) \( -clone 0 -resize 32x32 \) \( -clone 0 -resize 48x48 \) \( -clone 0 -resize 64x64 \) \( -clone 0 -resize 128x128 \) \( -clone 0 -resize 256x256 \) -delete 0 src-tauri/icons/icon.ico
 ```
-
-### Build on Windows (native)
-
-```powershell
-# Install Rust from https://rustup.rs/
-# Open a terminal (PowerShell or cmd)
-
-# Clone
-git clone https://github.com/emillorente/LogViewer.git
-cd LogViewer
-
-# Build release binary
-cargo build --release --all-features
-
-# Binary location:
-#   target\release\logviewer.exe
-```
-
-### Add an application icon to the .exe
-
-1. Create a `.ico` file (e.g. `logo.ico`). You can use any tool (GIMP, ImageMagick, online converter) — the `.ico` should contain at least 32×32 and 256×256 resolutions.
-
-2. Create a resource file `logo.rc` in the project root:
-
-```rc
-1 ICON "logo.ico"
-```
-
-3. Add the following to `Cargo.toml` to embed the icon during compilation:
-
-```toml
-[package]
-# ... existing fields ...
-build = "build.rs"
-```
-
-4. Create `build.rs` in the project root:
-
-```rust
-fn main() {
-    println!("cargo:rerun-if-changed=logo.rc");
-    println!("cargo:rerun-if-changed=logo.ico");
-    embed_resource::compile("logo.rc", embed_resource::NONE);
-}
-```
-
-5. Add the `embed-resource` build dependency to `Cargo.toml`:
-
-```toml
-[build-dependencies]
-embed-resource = "2"
-```
-
-6. Build again — `logviewer.exe` will now show your icon in Explorer.
-
-> Works only on Windows. On other platforms the build.rs is harmless (no-op).

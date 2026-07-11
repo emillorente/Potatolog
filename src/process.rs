@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{Error as IoError};
 
@@ -17,26 +18,28 @@ pub struct FilteredLogIterator {
 }
 
 impl FilterInner {
-    fn set_variable(&mut self, record: &mut Record, key: String, value: String) {
-        if let Some(existing) = record.variables.iter_mut().find(|(k, _)| *k == key) {
-            existing.1 = value.clone();
+    fn set_variable(&mut self, record: &mut Record, key: &str, value: &str) {
+        if let Some(existing) = record.variables.iter_mut().find(|(k, _)| k == key) {
+            existing.1 = value.to_owned();
         } else {
-            record.variables.push((key.clone(), value.clone()));
+            record.variables.push((key.to_owned(), value.to_owned()));
         }
-        self.variables_last.insert(key, value);
+        self.variables_last.insert(key.to_owned(), value.to_owned());
     }
 
-    fn evaluate(&self, expression: &Expression, record: &Record) -> String {
+    fn evaluate<'a>(&'a self, expression: &'a Expression, record: &'a Record) -> Cow<'a, str> {
         match expression {
-            Expression::Record => record.text.to_owned(),
+            Expression::Record => Cow::Borrowed(&record.text),
             Expression::Var(name) => record
                 .variables
                 .iter()
                 .find(|(k, _)| k == name)
-                .map(|(_, v)| v.clone())
-                .unwrap_or_default(),
-            Expression::LastVarValue(name) => self.variables_last.get(name).cloned().unwrap_or_default(),
-            Expression::Constant(value) => value.clone(),
+                .map(|(_, v)| Cow::Borrowed(v.as_str()))
+                .unwrap_or(Cow::Borrowed("")),
+            Expression::LastVarValue(name) => self.variables_last.get(name)
+                .map(|v| Cow::Borrowed(v.as_str()))
+                .unwrap_or(Cow::Borrowed("")),
+            Expression::Constant(value) => Cow::Borrowed(value),
         }
     }
 
@@ -50,10 +53,10 @@ impl FilterInner {
                 Operation::If { condition, then_ops, else_ops } => {
                     match condition {
                         Condition::Match { expression, pattern } => {
-                            let value = self.evaluate(expression, record);
+                            let value = self.evaluate(expression, record).into_owned();
                             if let Some(m) =  pattern.match_string(&value) {
-                                for (key, value) in m {
-                                    self.set_variable(record, key, value);
+                                for (k, v) in m {
+                                    self.set_variable(record, &k, &v);
                                 }
                                 if !self.apply_operations(record, then_ops) {
                                     return false;
@@ -67,11 +70,11 @@ impl FilterInner {
                     }
                 }
                 Operation::Set { target, expression } => {
-                    let value = self.evaluate(expression, record);
-                    self.set_variable(record, target.to_owned(), value);
+                    let value = self.evaluate(expression, record).into_owned();
+                    self.set_variable(record, target, &value);
                 }
                 Operation::ColorBy(expression) => {
-                    let value = self.evaluate(expression, record);
+                    let value = self.evaluate(expression, record).into_owned();
                     record.color = Color::FromValue { value };
                 }
                 Operation::SkipRecord => {

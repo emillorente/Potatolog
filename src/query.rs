@@ -14,7 +14,6 @@ type RecordCache = Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>;
 struct CachedDataSet {
     records: Vec<crate::Record>,
     iso_dates: Vec<Option<String>>,
-    search_texts: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -91,10 +90,10 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
     let data = cached_records(state, &path, refresh)?;
     let all_records = &data.records;
     let iso_dates = &data.iso_dates;
-    let search_texts = &data.search_texts;
     let empty_ts = iso_dates.iter().filter(|d| d.is_none()).count();
     let skip: usize = params.get("skip").and_then(|v| v.parse().ok()).unwrap_or(0);
     let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(2000);
+
     let f_level = params.get("level").map(String::as_str).unwrap_or("");
     let f_comp = params.get("comp").map(String::as_str).unwrap_or("");
     let f_proc = params.get("proc").map(String::as_str).unwrap_or("");
@@ -117,8 +116,8 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
     } else {
         f_date_to
     };
-    let f_hide_triggers = params.get("hideTriggers").map(|v| v == "true").unwrap_or(false);
-    let search_q = params.get("q").map(String::as_str).unwrap_or("");
+    let f_show_triggers = params.get("showTriggers").map(|v| v == "true").unwrap_or(false);
+    let search_q = "";
 
     let has_date_from = !f_date_from.is_empty();
     let has_date_to = !f_date_to.is_empty();
@@ -134,81 +133,95 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
         && f_line.is_empty()
         && f_source_c.is_empty()
         && f_line_c.is_empty()
-        && !f_hide_triggers
+        && f_show_triggers
         && !has_date_from
         && !has_date_to
         && search_q.is_empty();
 
-    let matching: Vec<usize> = if no_active_filters {
-        (0..all_records.len()).collect()
-    } else {
-        let date_break = if has_date_from {
-            let mut e = main_end;
-            for i in 0..main_end {
-                if let Some(ref iso) = iso_dates[i] {
-                    if iso.as_str() < f_date_from {
-                        e = i;
-                        break;
-                    }
-                }
-            }
-            e
-        } else {
-            main_end
-        };
+    if no_active_filters {
+        let total = all_records.len();
+        let out_records: Vec<serde_json::Value> = all_records
+            .iter()
+            .skip(skip)
+            .take(limit)
+            .map(record_to_json)
+            .collect();
+        return Ok(QueryResponse { r: out_records, t: total });
+    }
 
-        all_records[..date_break]
-            .par_iter()
-            .enumerate()
-            .filter(|(i, rec)| {
-                record_matches(
-                    rec,
-                    *i,
-                    main_end,
-                    iso_dates,
-                    search_texts,
-                    f_level,
-                    f_comp,
-                    f_proc,
-                    f_thread,
-                    &f_users,
-                    f_msg,
-                    f_source,
-                    f_line,
-                    f_source_c,
-                    f_line_c,
-                    f_hide_triggers,
-                    has_date_to,
-                    f_date_to_ref,
-                    search_q,
-                )
-            })
-            .map(|(i, _)| i)
-            .chain((main_end..all_records.len()).into_par_iter().filter(|&i| {
-                record_matches(
-                    &all_records[i],
-                    i,
-                    main_end,
-                    iso_dates,
-                    search_texts,
-                    f_level,
-                    f_comp,
-                    f_proc,
-                    f_thread,
-                    &f_users,
-                    f_msg,
-                    f_source,
-                    f_line,
-                    f_source_c,
-                    f_line_c,
-                    f_hide_triggers,
-                    false,
-                    f_date_to_ref,
-                    search_q,
-                )
-            }))
-            .collect()
+    let f_level_lc = f_level.to_ascii_lowercase();
+    let f_comp_lc = f_comp.to_ascii_lowercase();
+    let f_proc_lc = f_proc.to_ascii_lowercase();
+    let f_thread_lc = f_thread.to_ascii_lowercase();
+    let f_msg_lc = f_msg.to_ascii_lowercase();
+    let f_source_lc = f_source.to_ascii_lowercase();
+    let f_line_lc = f_line.to_ascii_lowercase();
+    let f_source_c_lc = f_source_c.to_ascii_lowercase();
+    let f_line_c_lc = f_line_c.to_ascii_lowercase();
+
+
+    let date_break = if has_date_from {
+        // Binary search: records are newest-first, dates are ISO strings
+        // Find the first record where date < f_date_from
+        let mut lo = 0usize;
+        let mut hi = main_end;
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            match &iso_dates[mid] {
+                Some(iso) if iso.as_str() >= f_date_from => lo = mid + 1,
+                _ => hi = mid,
+            }
+        }
+        lo
+    } else {
+        main_end
     };
+
+    let matching: Vec<usize> = all_records[..date_break]
+        .par_iter()
+        .enumerate()
+        .filter(|(i, rec)| {
+            record_matches(
+                rec,
+                *i,
+                iso_dates,
+                &f_level_lc,
+                &f_comp_lc,
+                &f_proc_lc,
+                &f_thread_lc,
+                &f_users,
+                &f_msg_lc,
+                &f_source_lc,
+                &f_line_lc,
+                &f_source_c_lc,
+                &f_line_c_lc,
+                f_show_triggers,
+                has_date_to,
+                f_date_to_ref,
+            )
+        })
+        .map(|(i, _)| i)
+        .chain((main_end..all_records.len()).into_par_iter().filter(|&i| {
+            record_matches(
+                &all_records[i],
+                i,
+                iso_dates,
+                &f_level_lc,
+                &f_comp_lc,
+                &f_proc_lc,
+                &f_thread_lc,
+                &f_users,
+                &f_msg_lc,
+                &f_source_lc,
+                &f_line_lc,
+                &f_source_c_lc,
+                &f_line_c_lc,
+                f_show_triggers,
+                false,
+                f_date_to_ref,
+            )
+        }))
+        .collect();
 
     let total = matching.len();
     let out_records: Vec<serde_json::Value> = matching
@@ -228,90 +241,104 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
 fn record_matches(
     rec: &crate::Record,
     i: usize,
-    main_end: usize,
     iso_dates: &[Option<String>],
-    search_texts: &[String],
-    f_level: &str,
-    f_comp: &str,
-    f_proc: &str,
-    f_thread: &str,
+    f_level_lc: &str,
+    f_comp_lc: &str,
+    f_proc_lc: &str,
+    f_thread_lc: &str,
     f_users: &[String],
-    f_msg: &str,
-    f_source: &str,
-    f_line: &str,
-    f_source_c: &str,
-    f_line_c: &str,
-    f_hide_triggers: bool,
+    f_msg_lc: &str,
+    f_source_lc: &str,
+    f_line_lc: &str,
+    f_source_c_lc: &str,
+    f_line_c_lc: &str,
+    f_show_triggers: bool,
     has_date_to: bool,
     f_date_to_ref: &str,
-    search_q: &str,
 ) -> bool {
-    let level = rec.get("level").unwrap_or("");
-    let comp = rec.get("component").unwrap_or("");
-    let proc = rec.get("proc").unwrap_or("");
-    let thread = rec.get("thread").unwrap_or("");
-    let user = rec.get("user").unwrap_or("");
-    let msg = rec.get("message").unwrap_or(&rec.text);
-    let source = rec.get("source").unwrap_or("");
-    let line = rec.get("line").unwrap_or("");
-    let source_c = rec.get("sourceC").unwrap_or("");
-    let line_c = rec.get("lineC").unwrap_or("");
+    // Single pass to extract fields (avoids 11 linear searches)
+    let mut level = "";
+    let mut comp = "";
+    let mut proc = "";
+    let mut thread = "";
+    let mut user = "";
+    let mut msg = rec.text.as_str();
+    let mut source = "";
+    let mut line = "";
+    let mut source_c = "";
+    let mut line_c = "";
+    for (k, v) in &rec.variables {
+        let s = v.as_str();
+        match k.as_str() {
+            "level" => level = s,
+            "component" => comp = s,
+            "proc" => proc = s,
+            "thread" => thread = s,
+            "user" => user = s,
+            "message" => msg = s,
+            "source" => source = s,
+            "line" => line = s,
+            "sourceC" => source_c = s,
+            "lineC" => line_c = s,
+            _ => {}
+        }
+    }
 
-    if !f_level.is_empty() && !level.to_lowercase().contains(&f_level.to_lowercase()) {
+    if !f_level_lc.is_empty() && !level.to_ascii_lowercase().contains(f_level_lc) {
         return false;
     }
-    if !f_comp.is_empty() && !comp.to_lowercase().contains(&f_comp.to_lowercase()) {
+    if !f_comp_lc.is_empty() && !comp.to_ascii_lowercase().contains(f_comp_lc) {
         return false;
     }
-    if !f_proc.is_empty() && !proc.to_lowercase().contains(&f_proc.to_lowercase()) {
+    if !f_proc_lc.is_empty() && !proc.to_ascii_lowercase().contains(f_proc_lc) {
         return false;
     }
-    if !f_thread.is_empty() && !thread.to_lowercase().contains(&f_thread.to_lowercase()) {
+    if !f_thread_lc.is_empty() && !thread.to_ascii_lowercase().contains(f_thread_lc) {
         return false;
     }
     if !matches_user_filter(user, f_users) {
         return false;
     }
-    if !f_msg.is_empty() && !msg.to_lowercase().contains(&f_msg.to_lowercase()) {
+    if !f_msg_lc.is_empty() && !msg.to_ascii_lowercase().contains(f_msg_lc) {
         return false;
     }
-    if !f_source.is_empty() && !source.to_lowercase().contains(&f_source.to_lowercase()) {
+    if !f_source_lc.is_empty() && !source.to_ascii_lowercase().contains(f_source_lc) {
         return false;
     }
-    if !f_line.is_empty() && !line.to_lowercase().contains(&f_line.to_lowercase()) {
+    if !f_line_lc.is_empty() && !line.to_ascii_lowercase().contains(f_line_lc) {
         return false;
     }
-    if !f_source_c.is_empty() && !source_c.to_lowercase().contains(&f_source_c.to_lowercase()) {
+    if !f_source_c_lc.is_empty() && !source_c.to_ascii_lowercase().contains(f_source_c_lc) {
         return false;
     }
-    if !f_line_c.is_empty() && !line_c.to_lowercase().contains(&f_line_c.to_lowercase()) {
+    if !f_line_c_lc.is_empty() && !line_c.to_ascii_lowercase().contains(f_line_c_lc) {
         return false;
     }
-    if f_hide_triggers && comp.to_uppercase().starts_with("TRIGGER") {
+    if !f_show_triggers && comp.len() >= 7 && comp.as_bytes()[..7].eq_ignore_ascii_case(b"TRIGGER") {
         return false;
     }
-    if has_date_to && i < main_end {
+    if has_date_to {
         if let Some(ref iso) = iso_dates[i] {
             if iso.as_str() > f_date_to_ref {
                 return false;
             }
         }
     }
-    if !search_q.is_empty() {
-        if !search_q
-            .split_whitespace()
-            .all(|w| search_texts[i].contains(w))
-        {
-            return false;
-        }
-    }
     true
 }
 
 fn record_to_json(rec: &crate::Record) -> serde_json::Value {
-    let comp = rec.get("component").unwrap_or("");
-    let msg = rec.get("message").unwrap_or(&rec.text);
-    let is_trigger = comp.to_uppercase().starts_with("TRIGGER");
+    let mut comp = "";
+    let mut msg = rec.text.as_str();
+    for (k, v) in &rec.variables {
+        let s = v.as_str();
+        match k.as_str() {
+            "component" => comp = s,
+            "message" => msg = s,
+            _ => {}
+        }
+    }
+    let is_trigger = comp.len() >= 7 && comp.as_bytes()[..7].eq_ignore_ascii_case(b"TRIGGER");
     let op_class = detect_op_class(msg);
     let mut vars = serde_json::Map::with_capacity(rec.variables.len());
     for (k, v) in &rec.variables {
@@ -354,29 +381,24 @@ fn load_records(path: &str) -> Result<CachedDataSet, QueryError> {
     }
     let iso_dates: Vec<Option<String>> = with_ts.iter().map(|(_, iso)| iso.clone()).collect();
     let records: Vec<crate::Record> = with_ts.into_iter().map(|(r, _)| r).collect();
-    let search_texts: Vec<String> = records
-        .iter()
-        .map(|rec| {
-            let msg = rec.get("message").unwrap_or(&rec.text);
-            let comp = rec.get("component").unwrap_or("");
-            format!("{} {} {}", rec.text, msg, comp).to_lowercase()
-        })
-        .collect();
-    Ok(CachedDataSet { records, iso_dates, search_texts })
+    Ok(CachedDataSet { records, iso_dates })
 }
 
 fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Arc<CachedDataSet>, QueryError> {
-    if refresh {
-        state.cache.write().unwrap().remove(path);
-    } else if let Some(data) = state.cache.read().unwrap().get(path) {
-        return Ok(Arc::clone(data));
+    // Quick check with read lock
+    if !refresh {
+        if let Some(data) = state.cache.read().unwrap().get(path) {
+            return Ok(Arc::clone(data));
+        }
     }
+    // Load outside any lock
     let data = Arc::new(load_records(path)?);
-    state
-        .cache
-        .write()
-        .unwrap()
-        .insert(path.to_owned(), Arc::clone(&data));
+    // Insert with write lock (brief)
+    let mut cache = state.cache.write().unwrap();
+    if refresh {
+        cache.remove(path);
+    }
+    cache.insert(path.to_owned(), Arc::clone(&data));
     Ok(data)
 }
 
@@ -453,8 +475,7 @@ pub fn matches_user_filter(user: &str, filters: &[String]) -> bool {
     if filters.is_empty() {
         return true;
     }
-    let user_lc = user.to_lowercase();
-    filters.iter().any(|f| user_lc == *f)
+    filters.iter().any(|f| f.len() == user.len() && f.as_bytes().eq_ignore_ascii_case(user.as_bytes()))
 }
 
 fn detect_op_class(msg: &str) -> &'static str {
@@ -463,32 +484,43 @@ fn detect_op_class(msg: &str) -> &'static str {
         .split(|c: char| c.is_whitespace() || c == '(')
         .next()
         .unwrap_or("");
-    match first.to_uppercase().as_str() {
-        "SELECT" | "WITH" => "select",
-        "INSERT" | "MERGE" => "insert",
-        "UPDATE" => "update",
-        "DELETE" | "DROP" | "TRUNCATE" => "delete",
-        "CREATE" | "ALTER" | "BEGIN" => "create",
-        "EXEC" | "EXECUTE" | "CALL" | "DECLARE" => "exec",
-        "COMMIT" => "commit",
+    if first.len() < 2 { return ""; }
+    let b = first.as_bytes();
+    match b[0] | 32 {
+        b's' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"elect"))
+            || (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"with")) => "select",
+        b'i' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"nsert"))
+            || (b.len() == 5 && b[1..].eq_ignore_ascii_case(b"erge")) => "insert",
+        b'u' if b.len() == 6 && b[1..].eq_ignore_ascii_case(b"pdate") => "update",
+        b'd' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"elete"))
+            || (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"rop"))
+            || (b.len() == 8 && b[1..].eq_ignore_ascii_case(b"runcate")) => "delete",
+        b'c' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"reate"))
+            || (b.len() == 5 && b[1..].eq_ignore_ascii_case(b"lter"))
+            || (b.len() == 5 && b[1..].eq_ignore_ascii_case(b"egin")) => "create",
+        b'e' if (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"xec"))
+            || (b.len() == 7 && b[1..].eq_ignore_ascii_case(b"xecute"))
+            || (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"all"))
+            || (b.len() == 7 && b[1..].eq_ignore_ascii_case(b"eclare")) => "exec",
+        b'c' if b.len() == 6 && b[1..].eq_ignore_ascii_case(b"ommit") => "commit",
         _ => "",
     }
 }
 
 pub fn date_str_to_iso(s: &str) -> Option<String> {
-    let parts: Vec<&str> = s.splitn(2, ' ').collect();
-    let date_part = parts[0];
-    let time_part = parts
-        .get(1)
-        .map(|t| t.split(',').next().unwrap_or(t))
-        .unwrap_or("00:00:00");
-    let dp: Vec<&str> = date_part.split('/').collect();
-    if dp.len() != 3 {
-        return None;
-    }
-    let v0 = dp[0].parse::<u32>().ok()?;
-    let v1 = dp[1].parse::<u32>().ok()?;
-    let v2 = dp[2].parse::<u32>().ok()?;
+    let space = s.find(' ').unwrap_or(s.len());
+    let date_part = &s[..space];
+    let time_part = if space < s.len() {
+        let after_space = &s[space + 1..];
+        after_space.split(',').next().unwrap_or(after_space)
+    } else {
+        "00:00:00"
+    };
+    let mut segs = date_part.split('/');
+    let v0 = segs.next()?.parse::<u32>().ok()?;
+    let v1 = segs.next()?.parse::<u32>().ok()?;
+    let v2 = segs.next()?.parse::<u32>().ok()?;
+    if segs.next().is_some() { return None; }
     let (d, m, y) = if s.contains(',') {
         (v0, v1, v2)
     } else {

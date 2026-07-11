@@ -79,39 +79,41 @@ impl LogReader for LogCoreReader {
     }
 
     fn read_record(&mut self) -> Result<Option<String>, IoError> {
-        let mut record = String::new();
+        let mut record = String::with_capacity(512);
         let mut state: u8 = 0;
         let mut started = false;
 
         loop {
-            let mut byte = [0u8; 1];
-            match self.file.read(&mut byte) {
-                Ok(0) => {
-                    if record.is_empty() {
-                        return Ok(None);
-                    }
-                    return Ok(Some(record));
+            let buf = self.file.fill_buf()?;
+            if buf.is_empty() {
+                if record.is_empty() {
+                    return Ok(None);
                 }
-                Ok(_) => {
-                    self.pos += 1;
-                    let c = byte[0] as char;
-                    // Skip leading whitespace/newlines before first record byte
-                    if !started && (c == '\n' || c == '\r' || c == ' ' || c == '\t') {
-                        continue;
-                    }
-                    started = true;
-                    record.push(c);
-
-                    match state {
-                        0 if c == '~' => state = 1,
-                        1 if c == '@' => state = 2,
-                        2 if c == '_' => state = 3,
-                        3 if c == '~' => return Ok(Some(record)),
-                        _ => state = if c == '~' { 1 } else { 0 },
-                    }
-                }
-                Err(e) => return Err(e),
+                return Ok(Some(record));
             }
+            let mut consumed = 0;
+            for &byte in buf {
+                consumed += 1;
+                self.pos += 1;
+                let c = byte as char;
+                if !started && (c == '\n' || c == '\r' || c == ' ' || c == '\t') {
+                    continue;
+                }
+                started = true;
+                record.push(c);
+
+                match state {
+                    0 if c == '~' => state = 1,
+                    1 if c == '@' => state = 2,
+                    2 if c == '_' => state = 3,
+                    3 if c == '~' => {
+                        self.file.consume(consumed);
+                        return Ok(Some(record));
+                    }
+                    _ => state = if c == '~' { 1 } else { 0 },
+                }
+            }
+            self.file.consume(consumed);
         }
     }
 }

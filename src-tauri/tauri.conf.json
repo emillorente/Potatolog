@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LogViewer",
   "version": "0.1.0",
-  "identifier": "com.logviewer.app",
+  "identifier": "com.logviewer.desktop",
   "build": {
     "frontendDist": "../static",
     "beforeDevCommand": "",

@@ -14,9 +14,9 @@ name = "logviewer-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
-tauri-build = { version = "2.6.3", features = [] }
+tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 logviewer = { path = "..", default-features = false, features = ["json", "web"] }
-tauri = { version = "2.6.3", features = [] }
+tauri = { version = "2.11", features = [] }
 tokio = { version = "1", features = ["rt-multi-thread"] }

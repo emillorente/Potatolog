@@ -1,4 +1,5 @@
-use clap::{crate_version, App, Arg};
+use clap::{Arg, ArgMatches, Command};
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Write, stdout};
 
@@ -6,51 +7,37 @@ use logviewer::process;
 use logviewer::readers;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app = App::new("logviewer")
+    let app = Command::new("logviewer")
         .about("Log Viewer")
-        .version(crate_version!())
-        .author("Remi Rampin <remirampin@gmail.com>")
+        .version(env!("CARGO_PKG_VERSION"))
         .subcommand(
-            App::new("process")
+            Command::new("process")
                 .about("Process a log file according to a view (JSON) and output records (JSON lines)")
-                .arg(Arg::with_name("VIEW").required(true).help("View definition (JSON file)"))
-                .arg(Arg::with_name("LOG").required(true).help("Log file")),
+                .arg(Arg::new("VIEW").help("View definition (JSON file)").required(true))
+                .arg(Arg::new("LOG").help("Log file").required(true)),
         );
     #[cfg(feature = "web")]
     let app = app.subcommand(
-        App::new("web")
+        Command::new("web")
             .about("Start a local webserver to analyze logs")
-            .arg(Arg::with_name("LOG").required(false).help("Log file (optional - upload via UI)"))
+            .arg(Arg::new("LOG").help("Log file (optional - upload via UI)"))
             .arg(
-                Arg::with_name("VIEW")
+                Arg::new("VIEW")
                     .long("view")
-                    .short("v")
+                    .short('v')
                     .help("View definition (JSON file)"),
             ),
     );
-    #[cfg(feature = "desktop")]
-    let app = app.subcommand(
-        App::new("desktop")
-            .about("Launch native desktop application")
-            .arg(Arg::with_name("LOG").required(false).help("Log file (optional - upload via UI)")),
-    );
-
     let matches = app.get_matches();
 
-    #[cfg(feature = "desktop")]
-    let default_cmd = "desktop";
-    #[cfg(not(feature = "desktop"))]
-    let default_cmd = "web";
-
-    let cmd = matches.subcommand_name().unwrap_or(default_cmd);
-    let sub = matches.subcommand_matches(cmd).unwrap_or(&matches);
+    let (cmd, sub) = matches
+        .subcommand()
+        .unwrap_or(("web", &matches));
 
     match cmd {
         "process" => run_process(sub),
         #[cfg(feature = "web")]
         "web" => run_web(sub),
-        #[cfg(feature = "desktop")]
-        "desktop" => run_desktop(sub),
         _ => {
             eprintln!("Unknown command: {cmd}");
             std::process::exit(1);
@@ -58,16 +45,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn run_process(matches: &clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+fn run_process(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+    let view_path = matches.get_one::<String>("VIEW").unwrap();
+    let log_path = matches.get_one::<String>("LOG").unwrap();
+
     let reader = {
-        let path = matches.value_of_os("LOG").unwrap();
-        readers::detect_reader(path).unwrap_or_else(|_| {
-            Box::new(readers::LogFile::open(path).unwrap())
+        readers::detect_reader(OsStr::new(log_path)).unwrap_or_else(|_| {
+            Box::new(readers::LogFile::open(OsStr::new(log_path)).unwrap())
         })
     };
     let view = {
-        let path = matches.value_of_os("VIEW").unwrap();
-        let file = File::open(path)?;
+        let file = File::open(view_path)?;
         serde_json::from_reader(file)?
     };
 
@@ -82,18 +70,17 @@ fn run_process(matches: &clap::ArgMatches) -> Result<(), Box<dyn std::error::Err
 }
 
 #[cfg(feature = "web")]
-fn run_web(matches: &clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+fn run_web(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     logviewer::web::set_exe_dir_as_cwd();
     let log_path = matches
-        .value_of_os("LOG")
-        .map(|p| p.to_string_lossy().into_owned());
+        .get_one::<String>("LOG")
+        .map(|p| p.to_owned());
     if let Some(ref path) = log_path {
         logviewer::web::log_message(&format!("Log file: {path}"));
     } else {
         logviewer::web::log_message("No log file specified - load via UI upload.");
     }
-    let mut runtime = tokio::runtime::Builder::new()
-        .basic_scheduler()
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     runtime.block_on(logviewer::web::serve(
@@ -106,22 +93,9 @@ fn run_web(matches: &clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[cfg(not(feature = "web"))]
-fn run_web(_: &clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+fn run_web(_: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Web feature not enabled. Rebuild with --features web");
     std::process::exit(1);
 }
 
-#[cfg(feature = "desktop")]
-fn run_desktop(matches: &clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    let log_path = matches
-        .value_of_os("LOG")
-        .map(|p| p.to_string_lossy().into_owned());
-    logviewer::desktop::run(log_path);
-    Ok(())
-}
 
-#[cfg(not(feature = "desktop"))]
-fn run_desktop(_: &clap::ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    eprintln!("Desktop feature not enabled. Rebuild with --features desktop");
-    std::process::exit(1);
-}

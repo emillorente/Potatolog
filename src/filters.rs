@@ -1,7 +1,6 @@
 use regex::Regex;
 #[cfg(feature = "json")]
 use serde_derive::{Serialize, Deserialize};
-use std::collections::HashMap;
 use std::fmt::Debug;
 
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
@@ -117,19 +116,16 @@ impl Pattern {
         }
     }
 
-    pub fn match_string(&self, string: &str) -> Option<HashMap<String, String>> {
+    pub fn match_string(&self, string: &str) -> Option<Vec<(String, String)>> {
         match self.compiled.captures(string) {
             Some(m) => {
-                let mut map: HashMap<String, String> = HashMap::new();
+                let mut pairs: Vec<(String, String)> = Vec::with_capacity(self.groups.len());
                 for (value, key) in m.iter().zip(&self.all_groups) {
                     if let (Some(key), Some(value)) = (key, value) {
-                        map.insert(
-                            key.to_owned(),
-                            value.as_str().to_owned(),
-                        );
+                        pairs.push((key.to_owned(), value.as_str().to_owned()));
                     }
                 }
-                Some(map)
+                Some(pairs)
             }
             None => None,
         }

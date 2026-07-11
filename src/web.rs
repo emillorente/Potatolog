@@ -99,7 +99,7 @@ async fn handle_upload(
     }
     let fp = file_path.clone();
     tokio::spawn(async move {
-        tokio::time::delay_for(std::time::Duration::from_secs(3600)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         std::fs::remove_file(fp).ok();
     });
     Ok(warp::reply::json(&serde_json::json!({
@@ -111,7 +111,10 @@ async fn handle_query(
     params: HashMap<String, String>,
     state: Arc<AppState>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    match query::query_records(&state, &params) {
+    let result = tokio::task::spawn_blocking(move || {
+        query::query_records(&state, &params)
+    }).await.unwrap_or(Err(QueryError::NotFound));
+    match result {
         Ok(response) => Ok(warp::reply::json(&response)),
         Err(QueryError::NotFound) => Err(warp::reject::not_found()),
     }
