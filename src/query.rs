@@ -86,6 +86,14 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
             });
         }
     };
+    // Security: only allow files from temp dir or the default file
+    let allowed = std::env::temp_dir().join("logviewer");
+    let path_ref = std::path::Path::new(&path);
+    if !path_ref.starts_with(&allowed)
+        && state.default_file.as_ref().map_or(true, |d| path_ref != std::path::Path::new(d))
+    {
+        return Ok(QueryResponse { r: vec![], t: 0 });
+    }
     let refresh = params.get("refresh").map(|v| v == "true").unwrap_or(false);
     let data = cached_records(state, &path, refresh)?;
     let all_records = &data.records;
@@ -117,34 +125,50 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
         f_date_to
     };
     let f_show_triggers = params.get("showTriggers").map(|v| v == "true").unwrap_or(false);
-    let search_q = "";
 
     let has_date_from = !f_date_from.is_empty();
     let has_date_to = !f_date_to.is_empty();
     let main_end = all_records.len() - empty_ts;
 
-    let no_active_filters = f_level.is_empty()
-        && f_comp.is_empty()
-        && f_proc.is_empty()
-        && f_thread.is_empty()
-        && f_users.is_empty()
-        && f_msg.is_empty()
-        && f_source.is_empty()
-        && f_line.is_empty()
-        && f_source_c.is_empty()
-        && f_line_c.is_empty()
-        && f_show_triggers
-        && !has_date_from
-        && !has_date_to
-        && search_q.is_empty();
+    let has_text_filters = !f_level.is_empty()
+        || !f_comp.is_empty()
+        || !f_proc.is_empty()
+        || !f_thread.is_empty()
+        || !f_users.is_empty()
+        || !f_msg.is_empty()
+        || !f_source.is_empty()
+        || !f_line.is_empty()
+        || !f_source_c.is_empty()
+        || !f_line_c.is_empty();
 
-    if no_active_filters {
-        let total = all_records.len();
-        let out_records: Vec<serde_json::Value> = all_records
+    if !has_text_filters && !has_date_from && !has_date_to {
+        if f_show_triggers {
+            // No filters at all — fast path
+            let total = all_records.len();
+            let out_records: Vec<serde_json::Value> = all_records
+                .iter()
+                .skip(skip)
+                .take(limit)
+                .map(record_to_json)
+                .collect();
+            return Ok(QueryResponse { r: out_records, t: total });
+        }
+        // Only trigger filter — lightweight pass
+        let matching: Vec<usize> = all_records
+            .iter()
+            .enumerate()
+            .filter(|(_, rec)| {
+                let comp = rec.get("component").unwrap_or("");
+                !(comp.len() >= 7 && comp.as_bytes()[..7].eq_ignore_ascii_case(b"TRIGGER"))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let total = matching.len();
+        let out_records: Vec<serde_json::Value> = matching
             .iter()
             .skip(skip)
             .take(limit)
-            .map(record_to_json)
+            .map(|&i| record_to_json(&all_records[i]))
             .collect();
         return Ok(QueryResponse { r: out_records, t: total });
     }
@@ -489,15 +513,15 @@ fn detect_op_class(msg: &str) -> &'static str {
     match b[0] | 32 {
         b's' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"elect"))
             || (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"with")) => "select",
-        b'i' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"nsert"))
-            || (b.len() == 5 && b[1..].eq_ignore_ascii_case(b"erge")) => "insert",
+        b'i' if b.len() == 6 && b[1..].eq_ignore_ascii_case(b"nsert") => "insert",
         b'u' if b.len() == 6 && b[1..].eq_ignore_ascii_case(b"pdate") => "update",
         b'd' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"elete"))
             || (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"rop"))
             || (b.len() == 8 && b[1..].eq_ignore_ascii_case(b"runcate")) => "delete",
         b'c' if (b.len() == 6 && b[1..].eq_ignore_ascii_case(b"reate"))
-            || (b.len() == 5 && b[1..].eq_ignore_ascii_case(b"lter"))
-            || (b.len() == 5 && b[1..].eq_ignore_ascii_case(b"egin")) => "create",
+            || (b.len() == 5 && b[1..].eq_ignore_ascii_case(b"lter")) => "create",
+        b'm' if b.len() == 5 && b[1..].eq_ignore_ascii_case(b"erge") => "merge",
+        b'b' if b.len() == 5 && b[1..].eq_ignore_ascii_case(b"egin") => "begin",
         b'e' if (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"xec"))
             || (b.len() == 7 && b[1..].eq_ignore_ascii_case(b"xecute"))
             || (b.len() == 4 && b[1..].eq_ignore_ascii_case(b"all"))

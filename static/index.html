@@ -892,8 +892,13 @@ function doRenderAll() {
   container.scrollTop = 0;
 }
 
+let currentQuery = null;
+
 async function fetchPage(forceRefresh) {
   if (!currentFile && !allRecords.length) { doRenderAll(); return; }
+  if (currentQuery) currentQuery.abort();
+  const controller = new AbortController();
+  currentQuery = controller;
   showSpinner();
   const params = new URLSearchParams();
   if (currentFile) params.set('file', currentFile);
@@ -916,7 +921,7 @@ async function fetchPage(forceRefresh) {
   if (colFilters.dateTo) params.set('dateTo', colFilters.dateTo);
   if (colFilters.showTriggers) params.set('showTriggers', 'true');
   try {
-    const data = await apiQuery(params);
+    const data = await apiQuery(params, controller.signal);
     allRecords = data.r || [];
     allTotal = data.t || 0;
   } catch (err) {

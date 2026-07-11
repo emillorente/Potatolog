@@ -16,6 +16,36 @@
 - XML detection in CORE.OUT messages: if text starts with `<` and contains `>` and either `</` or `/>`, format as XML in modal with syntax highlighting.
 - SQL operation detection (any file): first keyword (SELECT, INSERT, etc.) detected, colored bar shown in Texto column, border + colored keyword in modal. Botón "📋 Copy" en modal para copiar texto formateado.
 
+## Security & Reliability Fixes
+
+### 🔴 Path traversal (query.rs:85-92)
+- `file` param en `/api/query` se validaba contra cualquier ruta del sistema.
+- **Fix**: solo se permiten archivos dentro de `{temp_dir}/logviewer/` o el `default_file` del CLI.
+
+### 🔴 Race condition en fetchPage (index.html + api.js)
+- Clics rápidos en Prev/Next podían mostrar datos de página equivocada (respuestas fuera de orden).
+- **Fix**: `AbortController` cancela cualquier query previa antes de lanzar una nueva.
+
+### 🔴 LogQueryReader GO handling (readers.rs)
+- `"GO"` en mayúscula no se detectaba como terminador; líneas `/***` se trataban como headers.
+- **Fix**: `eq_ignore_ascii_case("go")`, skip de líneas `/***`, skip condicional de trailing.
+
+### 🟠 no_active_filters optimization (query.rs)
+- El fast path nunca se activaba por defecto porque `f_show_triggers=false` bloqueaba `no_active_filters`.
+- **Fix**: separado trigger filter del fast path. Solo-trigger usa un scan ligero sin pre-calcular lowercases.
+
+### 🟠 SQL classification (query.rs)
+- `MERGE` clasificado como `"insert"`, `BEGIN` clasificado como `"create"`.
+- **Fix**: clases separadas `"merge"` y `"begin"` con sus propios colers en frontend.
+
+### 🟠 Tests (tests/fixtures/)
+- 6 tests de readers fallaban por falta de fixtures.
+- **Fix**: creados `sample_core.out`, `sample_reu.out`, `sample_reu_detect.out`, `sample_plain.log`. **14/14 tests pasan**.
+
+### 🟡 CSP (tauri.conf.json)
+- CSP deshabilitado (`null`).
+- **Fix**: `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:`
+
 ## Done
 
 ### UI / Frontend

@@ -1,5 +1,5 @@
-async function apiQuery(params) {
-  const res = await fetch('/api/query?' + params.toString());
+async function apiQuery(params, signal) {
+  const res = await fetch('/api/query?' + params.toString(), { signal });
   if (!res.ok) throw new Error('query failed: ' + res.status);
   return res.json();
 }

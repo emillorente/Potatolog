@@ -1,0 +1,8 @@
+CONTEXT@100ms|DEBUG|comp1|proc1|25/07/26 10:00:00|src1|10
+SELECT * FROM users
+go
+
+CONTEXT@200ms|INFO|comp2|proc2|25/07/26 10:00:01|src2|20
+INSERT INTO logs
+go
+

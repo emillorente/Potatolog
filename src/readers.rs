@@ -159,7 +159,7 @@ impl LogReader for LogQueryReader {
         let header = loop {
             match self.read_line_trim()? {
                 None => return Ok(None),
-                Some(line) if !line.is_empty() => break line,
+                Some(line) if !line.is_empty() && !line.starts_with("/***") => break line,
                 _ => continue,
             }
         };
@@ -167,15 +167,14 @@ impl LogReader for LogQueryReader {
         let sql = loop {
             match self.read_line_trim()? {
                 None => break String::new(),
-                Some(line) if !line.is_empty() && line != "go" => break line,
+                Some(line) if !line.is_empty() && !line.eq_ignore_ascii_case("go") => break line,
                 _ => continue,
             }
         };
 
-        // skip "go" line
-        let _ = self.read_line_trim()?;
-        // skip blank line after go
-        let _ = self.read_line_trim()?;
+        // Skip trailing "go" + blank (reu format: sql + go + blank + next header)
+        let _ = self.read_line_trim()?; // skip "go" or whatever follows
+        let _ = self.read_line_trim()?; // skip blank after go or whatever follows
 
         Ok(Some(header + "~" + &sql))
     }
@@ -255,7 +254,7 @@ mod tests {
 
     #[test]
     fn detect_reader_picks_reu_format() {
-        let path = fixture("sample_reu.out");
+        let path = fixture("sample_reu_detect.out");
         let reader = detect_reader(&path).unwrap();
         let records = read_all(reader);
         assert_eq!(records.len(), 2);
