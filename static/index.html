@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Potatolog</title>
+<title>PotatoLog</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -334,6 +334,10 @@
   .sql-modal .modal-body .tag { color: var(--syntax-tag); }
   .sql-modal .modal-body .attr { color: var(--syntax-attr); }
   .sql-modal .modal-body .pi { color: var(--syntax-cmt); font-style: italic; }
+  .sql-modal .modal-body .json-key { color: var(--syntax-attr); }
+  .sql-modal .modal-body .json-num { color: var(--syntax-num); }
+  .sql-modal .modal-body .json-bool { color: var(--syntax-kw); }
+  .sql-modal .modal-body .json-null { color: var(--syntax-cmt); font-style: italic; }
   .sql-modal .modal-body.op-select,
   .sql-modal .modal-body.op-with   { border-left: 3px solid #569cd6; }
   .sql-modal .modal-body.op-insert { border-left: 3px solid #4ec9b0; }
@@ -374,7 +378,7 @@
 <header>
   <div class="brand">
     <div class="brand-icon">L</div>
-    <h1>Potatolog</h1>
+    <h1>PotatoLog</h1>
   </div>
   <div class="upload-btn">
 
@@ -581,6 +585,19 @@ function formatXmlHtml(xml) {
   return h;
 }
 
+function formatJson(str) {
+  try { return JSON.stringify(JSON.parse(str), null, 2); } catch (_) { return str; }
+}
+
+function formatJsonHtml(str) {
+  const pretty = formatJson(str);
+  return esc(pretty)
+    .replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
+    .replace(/: (\d+(?:\.\d+)?)/g, ': <span class="json-num">$1</span>')
+    .replace(/: (true|false)/g, ': <span class="json-bool">$1</span>')
+    .replace(/: null/g, ': <span class="json-null">null</span>');
+}
+
 const sqlModal = document.getElementById('sqlModal');
 const sqlModalBody = document.getElementById('sqlModalBody');
 function closeModal() {
@@ -617,14 +634,16 @@ function openSqlModal(msg, opClass) {
   const isReu = currentFile && currentFile.toLowerCase().includes('reu');
   const isXml = /^\s*</.test(msg) && msg.includes('>') && (/<\//.test(msg) || /\/\s*>/.test(msg));
   const isSql = isReu || /^\s*(SELECT|WITH|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|MERGE|EXEC|EXECUTE|CALL|DECLARE|BEGIN|COMMIT)\b/i.test(msg);
+  const isJson = !isXml && !isSql && /^\s*[\{\[]/.test(msg);
   let title;
   if (isReu || isSql) { title = 'SQL Query'; copyText = formatSql(msg); }
   else if (isXml) { title = 'XML'; copyText = formatXml(msg); }
+  else if (isJson) { title = 'JSON'; copyText = formatJson(msg); }
   else { title = 'Mensaje completo'; copyText = msg; }
   document.getElementById('sqlModalTitle').textContent = title;
   const op = opClass || (isSql ? detectSqlOp(msg) : '');
   sqlModalBody.className = 'modal-body' + (op ? ' op-' + op : '');
-  sqlModalBody.innerHTML = isSql ? formatSqlHtml(msg, op) : isXml ? formatXmlHtml(msg) : esc(msg);
+  sqlModalBody.innerHTML = isSql ? formatSqlHtml(msg, op) : isXml ? formatXmlHtml(msg) : isJson ? formatJsonHtml(msg) : esc(msg);
   sqlModal.classList.add('open');
 }
 

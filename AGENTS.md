@@ -56,7 +56,8 @@
 - `formatSql()` / `formatSqlHtml()` para SQL syntax highlighting con saltos de línea.
 - `formatXml()` / `formatXmlHtml()` para XML pretty-printing (tags, attributes, values, PI, inline elements).
 - Modal click-to-expand para Texto column: SQL/XML/plain text, título dinámico, cierre con ×/Escape/click-outside.
-- Botón "📋 Copy" en modal (copia texto formateado al portapapeles, feedback "✓ Copied" 2s).
+- Botón "Copy" en modal (copia texto formateado al portapapeles, feedback "✓ Copied" 2s).
+- JSON detection + formatting: mensajes que empiezan con `{` o `[` se formatean con `JSON.stringify(parsed, null, 2)` y syntax highlighting.
 - `updateColVisibility()`: oculta columnas cuyo campo está vacío en la página actual.
 - SQL op detection con barra coloreada (`.op-bar`) en Texto column + keyword coloreada en modal.
 - Trigger checkbox (`☐ triggers`): unchecked → triggers ocultos, checked → visibles. Persiste entre archivos.
@@ -157,7 +158,7 @@
 - `src/filters.rs`: regex patterns, View/Operation/Condition types, `match_string()` retorna Vec.
 - `src/query.rs`: query engine, `ColumnStore`-like access, `record_matches` single-pass, `record_to_json`, `cached_records`, `date_str_to_iso`, `detect_op_class`.
 - `src/lib.rs`: `Record`, `Color` types, `text_lower` eliminado.
-- `Cargo.toml`: features (cli, web, json), edition 2024, workspace con members = ["src-tauri"].
+- `Cargo.toml` (root): features (cli, web, json), edition 2024, workspace con members = ["src-tauri"].
 - `src-tauri/Cargo.toml`: Tauri 2.11, tokio 1.
 - `src-tauri/tauri.conf.json`: window 1400×900, URL http://127.0.0.1:8731, bundle iconos.
 - `src-tauri/src/lib.rs`: `run()`: tokio runtime + warp server + Tauri window.
@@ -174,7 +175,7 @@
 - [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (macOS: Xcode CLI tools)
 - Git
 
-> **Importante**: hay **dos crates** en un workspace. Siempre compilar desde la raíz del proyecto (`/Users/emi/Code/LogViewer`), **no** desde `src-tauri/`. El target dir compartido es `target/`.
+> **Importante**: hay **dos crates** en un workspace. Siempre compilar desde la raíz del proyecto (`/Users/emi/Code/Potatolog`), **no** desde `src-tauri/`. El target dir compartido es `target/`.
 
 ### 1. Desktop app — bundle completo (.app + .dmg)
 
@@ -182,8 +183,8 @@
 cd src-tauri && cargo tauri build --bundles "app,dmg"
 
 # Output:
-#   target/release/bundle/macos/Potatolog.app     ← se conserva
-#   target/release/bundle/dmg/Potatolog_0.1.0_aarch64.dmg
+#   target/release/bundle/macos/PotatoLog.app     ← se conserva
+#   target/release/bundle/dmg/PotatoLog_0.1.0_aarch64.dmg
 ```
 
 ### 2. Desktop app — solo binario (sin bundle)

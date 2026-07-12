@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Potatolog",
+  "productName": "PotatoLog",
   "version": "0.1.0",
   "identifier": "com.potatolog.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Potatolog",
+        "title": "PotatoLog",
         "url": "http://127.0.0.1:8731",
         "width": 1400,
         "height": 900,

@@ -1,4 +1,4 @@
-# Potatolog
+# PotatoLog
 
 Web-based structured log viewer. Parses CORE.OUT (tilde-delimited) and reu.out (SQL trace) formats, displays all original columns, and provides per-column filters with pagination.
 
@@ -13,6 +13,7 @@ Web-based structured log viewer. Parses CORE.OUT (tilde-delimited) and reu.out (
 - **Trigger toggle** — hides records whose Objeto starts with `TRIGGER`; persists across files
 - **XML formatting** in CORE.OUT messages (syntax-highlighted modal)
 - **SQL syntax highlighting** in reu.out messages (colored operation bars + keyword highlighting in modal)
+- **JSON formatting** in any message starting with `{` or `[` (pretty-printed with syntax highlighting in modal)
 - **Optimized for large files**: handles 382K-record (156 MB) CORE.OUT and 3.8K-query (13 MB) reu.out
 - **macOS .app bundle** (Tauri) with embedded web server
 
@@ -43,11 +44,11 @@ Web-based structured log viewer. Parses CORE.OUT (tilde-delimited) and reu.out (
 cd src-tauri && cargo tauri build --bundles "app,dmg"
 
 # Output:
-#   target/release/bundle/macos/Potatolog.app
-#   target/release/bundle/dmg/Potatolog_0.1.0_aarch64.dmg
+#   target/release/bundle/macos/PotatoLog.app
+#   target/release/bundle/dmg/PotatoLog_0.1.0_aarch64.dmg
 ```
 
-Open `Potatolog.app` — upload a log file via the "Open file…" button.
+Open `PotatoLog.app` — upload a log file via the "Open file…" button.
 
 ### CLI + Web Server
 

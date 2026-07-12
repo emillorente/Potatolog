@@ -35,7 +35,7 @@ fn start_embedded_server() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     query::set_exe_dir_as_cwd();
-    query::log_message("Starting Potatolog desktop");
+    query::log_message("Starting PotatoLog desktop");
 
     start_embedded_server();
 
