@@ -53,7 +53,7 @@ impl FilterInner {
                 Operation::If { condition, then_ops, else_ops } => {
                     match condition {
                         Condition::Match { expression, pattern } => {
-                            let value = self.evaluate(expression, record).into_owned();
+                            let value = self.evaluate(expression, record);
                             if let Some(m) =  pattern.match_string(&value) {
                                 for (k, v) in m {
                                     self.set_variable(record, &k, &v);

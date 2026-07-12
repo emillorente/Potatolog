@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    logviewer_desktop_lib::run();
+    potatolog_desktop_lib::run();
 }

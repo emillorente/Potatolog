@@ -3,11 +3,11 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Write, stdout};
 
-use logviewer::process;
-use logviewer::readers;
+use potatolog::process;
+use potatolog::readers;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app = Command::new("logviewer")
+    let app = Command::new("potatolog")
         .about("Log Viewer")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand(
@@ -71,19 +71,19 @@ fn run_process(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "web")]
 fn run_web(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    logviewer::web::set_exe_dir_as_cwd();
+    potatolog::web::set_exe_dir_as_cwd();
     let log_path = matches
         .get_one::<String>("LOG")
         .map(|p| p.to_owned());
     if let Some(ref path) = log_path {
-        logviewer::web::log_message(&format!("Log file: {path}"));
+        potatolog::web::log_message(&format!("Log file: {path}"));
     } else {
-        logviewer::web::log_message("No log file specified - load via UI upload.");
+        potatolog::web::log_message("No log file specified - load via UI upload.");
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(logviewer::web::serve(
+    runtime.block_on(potatolog::web::serve(
         [127, 0, 0, 1].into(),
         8000,
         log_path,

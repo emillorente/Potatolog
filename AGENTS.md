@@ -20,7 +20,7 @@
 
 ### 🔴 Path traversal (query.rs:85-92)
 - `file` param en `/api/query` se validaba contra cualquier ruta del sistema.
-- **Fix**: solo se permiten archivos dentro de `{temp_dir}/logviewer/` o el `default_file` del CLI.
+- **Fix**: solo se permiten archivos dentro de `{temp_dir}/potatolog/` o el `default_file` del CLI.
 
 ### 🔴 Race condition en fetchPage (index.html + api.js)
 - Clics rápidos en Prev/Next podían mostrar datos de página equivocada (respuestas fuera de orden).
@@ -33,6 +33,7 @@
 ### 🟠 no_active_filters optimization (query.rs)
 - El fast path nunca se activaba por defecto porque `f_show_triggers=false` bloqueaba `no_active_filters`.
 - **Fix**: separado trigger filter del fast path. Solo-trigger usa un scan ligero sin pre-calcular lowercases.
+- **Mejora adicional**: `has_non_triggers` cacheado en `CachedDataSet`. Si todos los registros son triggers (reu.out), el filtro se salta completamente → fast path siempre activo.
 
 ### 🟠 SQL classification (query.rs)
 - `MERGE` clasificado como `"insert"`, `BEGIN` clasificado como `"create"`.
@@ -106,6 +107,16 @@
 - **`date_str_to_iso()` sin Vec**: parseo directo con `find()` + `split()` (`query.rs:490-511`).
 - **Frontend**: `esc()` con regex, array+join en `renderRows`, solo rebuild tbody, event delegation, debounce 400ms.
 
+### Optimizations (Fase 3 — Última milla)
+- **`esc()` after truncation**: `esc()` ya no se llama sobre el mensaje completo (>100KB XML), solo sobre el slice de 200 chars visible (`index.html:716`).
+- **`into_owned()` eliminado en Match**: `evaluate()` retorna `Cow<str>`, que se pasa directamente a `match_string(&str)` sin clonar (`process.rs:56`).
+- **`getComputedStyle` cacheado**: `getMutedColor()` cachea `--text-muted` tras el primer lookup; se invalida al cambiar tema (`index.html:418,1020`).
+- **User dropdown cacheado**: `buildUserDropdown()` itera records solo cuando cambia `currentFile` (`index.html:464-475`).
+- **Single-pass timestamp + has_non_triggers**: `load_records` extrae timestamp y componente en una sola pasada, eliminando `to_string()` y segundo scan O(n) (`query.rs:384-420`).
+- **`to_ascii_lowercase` en filename**: `to_lowercase()` (Unicode) reemplazado por `to_ascii_lowercase()` (sin tabla Unicode) (`query.rs:443`).
+- **Byte comparisons en LogCoreReader**: `byte as char` reemplazado por comparación directa de bytes (`readers.rs:95-114`).
+- **`replace()` en vez de `split().pop()`**: `fnShort` usa `replace(/^.*[/\\]/, '')` sin arrays intermedios (`index.html:725-726`).
+
 ### Dependency upgrades
 - `tokio` 0.2 → 1.x, `warp` 0.2 → 0.4, `bytes` 0.5 → 1, `clap` 2.33 → 4.
 - Eliminados `wry`/`tao` del root crate (solo Tauri los usa).
@@ -114,7 +125,7 @@
 
 ### Code Quality
 - `#![warn(clippy::all)]` en lib.rs.
-- Edition 2018 → 2021.
+- Edition 2018 → 2024.
 - Reader fields (`file`, `pos`) privados.
 - `detect_reader` propaga errores con `?`.
 - Renamed `next_triable` → `try_next`.
@@ -146,7 +157,7 @@
 - `src/filters.rs`: regex patterns, View/Operation/Condition types, `match_string()` retorna Vec.
 - `src/query.rs`: query engine, `ColumnStore`-like access, `record_matches` single-pass, `record_to_json`, `cached_records`, `date_str_to_iso`, `detect_op_class`.
 - `src/lib.rs`: `Record`, `Color` types, `text_lower` eliminado.
-- `Cargo.toml`: features (cli, web, json), edition 2021, workspace con members = ["src-tauri"].
+- `Cargo.toml`: features (cli, web, json), edition 2024, workspace con members = ["src-tauri"].
 - `src-tauri/Cargo.toml`: Tauri 2.11, tokio 1.
 - `src-tauri/tauri.conf.json`: window 1400×900, URL http://127.0.0.1:8731, bundle iconos.
 - `src-tauri/src/lib.rs`: `run()`: tokio runtime + warp server + Tauri window.
@@ -171,22 +182,22 @@
 cd src-tauri && cargo tauri build --bundles "app,dmg"
 
 # Output:
-#   target/release/bundle/macos/LogViewer.app     ← se conserva
-#   target/release/bundle/dmg/LogViewer_0.1.0_aarch64.dmg
+#   target/release/bundle/macos/Potatolog.app     ← se conserva
+#   target/release/bundle/dmg/Potatolog_0.1.0_aarch64.dmg
 ```
 
 ### 2. Desktop app — solo binario (sin bundle)
 
 ```bash
-cargo build --release -p logviewer-desktop
-# Binary: target/release/logviewer-desktop
+cargo build --release -p potatolog-desktop
+# Binary: target/release/potatolog-desktop
 ```
 
 ### 3. CLI + web server (sin GUI)
 
 ```bash
 cargo build --release
-# Binary: target/release/logviewer
+# Binary: target/release/potatolog
 ```
 
 ### 4. Tests
@@ -200,10 +211,10 @@ cargo test
 
 ```bash
 # Web server (http://127.0.0.1:8000, upload file via UI)
-./target/release/logviewer web
+./target/release/potatolog web
 
 # CLI: procesar log con una vista (JSON lines a stdout)
-./target/release/logviewer process view_core.json examples/CORE.OUT
+./target/release/potatolog process view_core.json examples/CORE.OUT
 ```
 
 ### Cross-compile para Windows

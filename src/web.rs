@@ -84,7 +84,7 @@ async fn handle_upload(
         .get("name")
         .cloned()
         .unwrap_or_else(|| "upload.log".to_string());
-    let temp_dir = std::env::temp_dir().join("logviewer");
+    let temp_dir = std::env::temp_dir().join("potatolog");
     std::fs::create_dir_all(&temp_dir).ok();
     let file_path = temp_dir.join(format!(
         "{}_{}",

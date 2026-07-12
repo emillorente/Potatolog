@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "LogViewer",
+  "productName": "Potatolog",
   "version": "0.1.0",
-  "identifier": "com.logviewer.desktop",
+  "identifier": "com.potatolog.desktop",
   "build": {
     "frontendDist": "../static",
     "beforeDevCommand": "",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "LogViewer",
+        "title": "Potatolog",
         "url": "http://127.0.0.1:8731",
         "width": 1400,
         "height": 900,

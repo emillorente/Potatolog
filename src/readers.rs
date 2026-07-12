@@ -95,22 +95,21 @@ impl LogReader for LogCoreReader {
             for &byte in buf {
                 consumed += 1;
                 self.pos += 1;
-                let c = byte as char;
-                if !started && (c == '\n' || c == '\r' || c == ' ' || c == '\t') {
+                if !started && (byte == b'\n' || byte == b'\r' || byte == b' ' || byte == b'\t') {
                     continue;
                 }
                 started = true;
-                record.push(c);
+                record.push(byte as char);
 
                 match state {
-                    0 if c == '~' => state = 1,
-                    1 if c == '@' => state = 2,
-                    2 if c == '_' => state = 3,
-                    3 if c == '~' => {
+                    0 if byte == b'~' => state = 1,
+                    1 if byte == b'@' => state = 2,
+                    2 if byte == b'_' => state = 3,
+                    3 if byte == b'~' => {
                         self.file.consume(consumed);
                         return Ok(Some(record));
                     }
-                    _ => state = if c == '~' { 1 } else { 0 },
+                    _ => state = if byte == b'~' { 1 } else { 0 },
                 }
             }
             self.file.consume(consumed);
@@ -159,7 +158,15 @@ impl LogReader for LogQueryReader {
         let header = loop {
             match self.read_line_trim()? {
                 None => return Ok(None),
-                Some(line) if !line.is_empty() && !line.starts_with("/***") => break line,
+                Some(line) if !line.is_empty() => {
+                    if line.starts_with("/***") && line.contains("CONTEXT@") {
+                        break line;
+                    }
+                    if !line.starts_with("/***") {
+                        break line;
+                    }
+                    continue;
+                }
                 _ => continue,
             }
         };

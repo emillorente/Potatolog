@@ -14,6 +14,7 @@ type RecordCache = Arc<RwLock<HashMap<String, Arc<CachedDataSet>>>>;
 struct CachedDataSet {
     records: Vec<crate::Record>,
     iso_dates: Vec<Option<String>>,
+    has_non_triggers: bool,
 }
 
 #[derive(Debug)]
@@ -54,7 +55,7 @@ pub fn log_message(msg: &str) {
     eprintln!("{msg}");
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let log_path = dir.join("logviewer.log");
+            let log_path = dir.join("potatolog.log");
             use std::io::Write;
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
@@ -87,7 +88,7 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
         }
     };
     // Security: only allow files from temp dir or the default file
-    let allowed = std::env::temp_dir().join("logviewer");
+    let allowed = std::env::temp_dir().join("potatolog");
     let path_ref = std::path::Path::new(&path);
     if !path_ref.starts_with(&allowed)
         && state.default_file.as_ref().map_or(true, |d| path_ref != std::path::Path::new(d))
@@ -98,6 +99,7 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
     let data = cached_records(state, &path, refresh)?;
     let all_records = &data.records;
     let iso_dates = &data.iso_dates;
+    let has_non_triggers = data.has_non_triggers;
     let empty_ts = iso_dates.iter().filter(|d| d.is_none()).count();
     let skip: usize = params.get("skip").and_then(|v| v.parse().ok()).unwrap_or(0);
     let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(2000);
@@ -142,7 +144,7 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
         || !f_line_c.is_empty();
 
     if !has_text_filters && !has_date_from && !has_date_to {
-        if f_show_triggers {
+        if f_show_triggers || !data.has_non_triggers {
             // No filters at all — fast path
             let total = all_records.len();
             let out_records: Vec<serde_json::Value> = all_records
@@ -220,6 +222,7 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
                 &f_source_c_lc,
                 &f_line_c_lc,
                 f_show_triggers,
+                has_non_triggers,
                 has_date_to,
                 f_date_to_ref,
             )
@@ -241,6 +244,7 @@ pub fn query_records(state: &AppState, params: &HashMap<String, String>) -> Resu
                 &f_source_c_lc,
                 &f_line_c_lc,
                 f_show_triggers,
+                has_non_triggers,
                 false,
                 f_date_to_ref,
             )
@@ -277,6 +281,7 @@ fn record_matches(
     f_source_c_lc: &str,
     f_line_c_lc: &str,
     f_show_triggers: bool,
+    has_non_triggers: bool,
     has_date_to: bool,
     f_date_to_ref: &str,
 ) -> bool {
@@ -338,7 +343,7 @@ fn record_matches(
     if !f_line_c_lc.is_empty() && !line_c.to_ascii_lowercase().contains(f_line_c_lc) {
         return false;
     }
-    if !f_show_triggers && comp.len() >= 7 && comp.as_bytes()[..7].eq_ignore_ascii_case(b"TRIGGER") {
+    if !f_show_triggers && has_non_triggers && comp.len() >= 7 && comp.as_bytes()[..7].eq_ignore_ascii_case(b"TRIGGER") {
         return false;
     }
     if has_date_to {
@@ -382,17 +387,23 @@ fn load_records(path: &str) -> Result<CachedDataSet, QueryError> {
     let mut records: Vec<crate::Record> = process(reader, view).filter_map(|r| r.ok()).collect();
     records.reverse();
     let mut with_ts: Vec<(crate::Record, Option<String>)> = Vec::with_capacity(records.len());
+    let mut has_non_triggers = false;
     for rec in records {
-        let ds = rec
-            .get("timestamp")
-            .or_else(|| rec.get("time"))
-            .unwrap_or("")
-            .to_string();
-        if ds.is_empty() {
-            with_ts.push((rec, None));
-        } else {
-            with_ts.push((rec, date_str_to_iso(&ds)));
+        if !has_non_triggers {
+            let comp = rec.get("component").unwrap_or("");
+            if !(comp.len() >= 7 && comp.as_bytes()[..7].eq_ignore_ascii_case(b"TRIGGER")) {
+                has_non_triggers = true;
+            }
         }
+        let iso = rec
+            .variables
+            .iter()
+            .find_map(|(k, v)| {
+                if k == "timestamp" || k == "time" { Some(v.as_str()) } else { None }
+            })
+            .filter(|s| !s.is_empty())
+            .and_then(date_str_to_iso);
+        with_ts.push((rec, iso));
     }
     let mut i = 0;
     for j in 0..with_ts.len() {
@@ -405,7 +416,7 @@ fn load_records(path: &str) -> Result<CachedDataSet, QueryError> {
     }
     let iso_dates: Vec<Option<String>> = with_ts.iter().map(|(_, iso)| iso.clone()).collect();
     let records: Vec<crate::Record> = with_ts.into_iter().map(|(r, _)| r).collect();
-    Ok(CachedDataSet { records, iso_dates })
+    Ok(CachedDataSet { records, iso_dates, has_non_triggers })
 }
 
 fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Arc<CachedDataSet>, QueryError> {
@@ -429,9 +440,9 @@ fn cached_records(state: &AppState, path: &str, refresh: bool) -> Result<Arc<Cac
 pub fn view_for_file(path: &str) -> View {
     let fname = std::path::Path::new(path)
         .file_name()
-        .map(|s| s.to_string_lossy())
-        .unwrap_or_default();
-    let view_file = if fname.to_lowercase().contains("reu") {
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let view_file = if fname.to_ascii_lowercase().contains("reu") {
         "view_reu.json"
     } else if fname.ends_with(".OUT") || fname.ends_with(".out") {
         "view_core.json"

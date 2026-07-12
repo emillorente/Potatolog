@@ -3,10 +3,10 @@ members = ["src-tauri"]
 resolver = "2"
 
 [package]
-name = "logviewer"
+name = "potatolog"
 version = "0.1.0"
-authors = ["Remi Rampin <r@remirampin.com>"]
-edition = "2021"
+authors = ["emi"]
+edition = "2024"
 
 [dependencies]
 clap = { version = "4", optional = true }
@@ -26,6 +26,6 @@ cli = ["json", "clap"]
 web = ["json", "tokio", "warp", "bytes"]
 
 [[bin]]
-name = "logviewer"
+name = "potatolog"
 path = "src/cli.rs"
 required-features = ["cli", "json"]

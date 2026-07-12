@@ -2,8 +2,8 @@ use std::net::{IpAddr, Ipv4Addr, TcpStream};
 use std::thread;
 use std::time::Duration;
 
-use logviewer::query;
-use logviewer::web;
+use potatolog::query;
+use potatolog::web;
 
 const DESKTOP_PORT: u16 = 8731;
 
@@ -35,7 +35,7 @@ fn start_embedded_server() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     query::set_exe_dir_as_cwd();
-    query::log_message("Starting LogViewer desktop");
+    query::log_message("Starting Potatolog desktop");
 
     start_embedded_server();
 

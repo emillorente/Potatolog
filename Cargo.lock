@@ -1834,31 +1834,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
-name = "logviewer"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "clap",
- "rayon",
- "regex",
- "serde",
- "serde_derive",
- "serde_json",
- "tokio",
- "warp",
-]
-
-[[package]]
-name = "logviewer-desktop"
-version = "0.1.0"
-dependencies = [
- "logviewer",
- "tauri",
- "tauri-build",
- "tokio",
-]
-
-[[package]]
 name = "markup5ever"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2398,6 +2373,31 @@ dependencies = [
  "fdeflate",
  "flate2",
  "miniz_oxide",
+]
+
+[[package]]
+name = "potatolog"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tokio",
+ "warp",
+]
+
+[[package]]
+name = "potatolog-desktop"
+version = "0.1.0"
+dependencies = [
+ "potatolog",
+ "tauri",
+ "tauri-build",
+ "tokio",
 ]
 
 [[package]]

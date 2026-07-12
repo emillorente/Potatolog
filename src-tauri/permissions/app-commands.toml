@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-app-commands"
-description = "LogViewer custom IPC commands"
+description = "Potatolog custom IPC commands"
 commands.allow = ["query_logs", "pick_log_file", "set_log_file"]
