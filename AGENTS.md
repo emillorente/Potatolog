@@ -43,6 +43,10 @@
 - 6 tests de readers fallaban por falta de fixtures.
 - **Fix**: creados `sample_core.out`, `sample_reu.out`, `sample_reu_detect.out`, `sample_plain.log`. **14/14 tests pasan**.
 
+### 🔴 JSON key highlighting (index.html:592-598)
+- `formatJsonHtml()` llamaba `esc(pretty)` antes de aplicar regex de resaltado, convirtiendo `"` → `&quot;` y rompiendo el match de `"([^"]+)":`.
+- **Fix**: reemplazado `esc()` por manual escaping de `&`, `<`, `>` (como `formatXmlHtml`). Número regex extendido para negativos y notación científica.
+
 ### 🟡 CSP (tauri.conf.json)
 - CSP deshabilitado (`null`).
 - **Fix**: `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:`

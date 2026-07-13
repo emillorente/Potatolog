@@ -591,9 +591,13 @@ function formatJson(str) {
 
 function formatJsonHtml(str) {
   const pretty = formatJson(str);
-  return esc(pretty)
+  let html = pretty
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return html
     .replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
-    .replace(/: (\d+(?:\.\d+)?)/g, ': <span class="json-num">$1</span>')
+    .replace(/: (-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ': <span class="json-num">$1</span>')
     .replace(/: (true|false)/g, ': <span class="json-bool">$1</span>')
     .replace(/: null/g, ': <span class="json-null">null</span>');
 }
